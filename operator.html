@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -128,6 +129,7 @@
         assembler: '',
         machineOp: '',
         inspector: '',
+        workerCount: '',   // ★ 加工人數
         model: '',
         color: '',
         modelCode: '',
@@ -135,6 +137,7 @@
         batch: '第一批',
         target: 0
       });
+      const [shiftStartTime, setShiftStartTime] = useState(null); // ★ 開班時間（自動記錄）
 
       // 2. 核心報工計數狀態（全部從 0 開始）
       const [goodCount, setGoodCount] = useState(0);
@@ -225,7 +228,7 @@
       const [showHandoverModal, setShowHandoverModal] = useState(false);
       const [showLoginModal, setShowLoginModal] = useState(false);
 
-      const [nextShiftStaff, setNextShiftStaff] = useState({ assembler: '', machineOp: '', inspector: '' });
+      const [nextShiftStaff, setNextShiftStaff] = useState({ assembler: '', machineOp: '', inspector: '', workerCount: '' });
       
       // 下班時同時結批
       const [handoverWithBatchClose, setHandoverWithBatchClose] = useState(false);
@@ -524,7 +527,12 @@
 
         const batchStatusText = handoverWithBatchClose ? "結報並結批" : "結報";
         if (!isIdleMode) {
-          sendToAPI({ type:"weld_report", line:lineInfo.name, assembler:lineInfo.assembler, machineOp:lineInfo.machineOp, inspector:lineInfo.inspector, model:lineInfo.model, color:lineInfo.color||"", batch:lineInfo.batch, input:totalInput, good:goodCount, defect:totalDefect, rework:reworkCount, defectDetails, incomingInnerDefect, incomingOuterDefect, faiCount, note:`下班結報(${batchStatusText})`, period:"下班結報" });
+          const shiftEndTime = new Date();
+          sendToAPI({ type:"weld_report", line:lineInfo.name, assembler:lineInfo.assembler, machineOp:lineInfo.machineOp, inspector:lineInfo.inspector, model:lineInfo.model, color:lineInfo.color||"", batch:lineInfo.batch, input:totalInput, good:goodCount, defect:totalDefect, rework:reworkCount, defectDetails, incomingInnerDefect, incomingOuterDefect, faiCount, note:`下班結報(${batchStatusText})`, period:"下班結報",
+            workerCount: lineInfo.workerCount || '',
+            shiftStartTime: shiftStartTime ? shiftStartTime.toISOString() : '',
+            shiftEndTime: shiftEndTime.toISOString(),
+          });
         }
         addLog(`🚪 [${shiftInfo.shortName}下班${isIdleMode ? '結報(閒置中)' : batchStatusText}] 組裝:${lineInfo.assembler} / 機台:${lineInfo.machineOp} / 檢驗:${lineInfo.inspector}。${isIdleMode ? '本班全程閒置等待批次分配' : `良品:${goodCount}, 製程不良:${totalDefect}, 本班首件:${faiCount}, 內餘:${remainingInner}, 外餘:${remainingOuter}`}`, 'bg-red-950/40 text-red-400 border-red-900/30');
 
@@ -643,9 +651,11 @@
           ...prev,
           assembler: finalAssembler,
           machineOp: finalMachineOp,
-          inspector: finalInspector
+          inspector: finalInspector,
+          workerCount: nextShiftStaff.workerCount || '',  // ★ 加工人數
         }));
-        addLog(`🆕 接班登入：組裝:${finalAssembler} / 機台:${finalMachineOp} / 檢驗:${finalInspector}`, 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30');
+        setShiftStartTime(new Date()); // ★ 記錄開班時間
+        addLog(`🆕 接班登入：組裝:${finalAssembler} / 機台:${finalMachineOp} / 檢驗:${finalInspector}${nextShiftStaff.workerCount ? ` / 加工人數:${nextShiftStaff.workerCount}` : ''}`, 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30');
         setShowLoginModal(false);
         setHandoverWithBatchClose(false);
         setAppScreen('batch');
@@ -924,6 +934,21 @@
                     </select>
                   </div>
                 ))}
+
+                {/* ★ 加工人數 */}
+                <div>
+                  <label className="block text-slate-400 text-xs mb-1.5 ml-1 font-bold">
+                    加工人數 <span className="text-slate-600 font-normal">（本班次上線幾人，選填）</span>
+                  </label>
+                  <input
+                    type="number" min="1" max="20"
+                    value={nextShiftStaff.workerCount}
+                    onChange={e => setNextShiftStaff(prev => ({ ...prev, workerCount: e.target.value }))}
+                    placeholder="3"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-xl font-bold outline-none focus:border-emerald-500 transition-all text-slate-100"
+                  />
+                </div>
+
                 <button
                   onClick={executeShiftLogin}
                   className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-5 rounded-2xl text-2xl border border-emerald-400/50 shadow-lg active:scale-95 transition-all flex items-center justify-center gap-3 mt-2"
