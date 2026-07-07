@@ -45,7 +45,8 @@ const INITIAL_DEFECT_REASONS = [
 ];
 
 // 機型 + 顏色 → 目標產量對照（與面板共用，1.1倍）
-const WELD_MODEL_DATA = {
+// ★ 型號/顏色資料：預設值，可在主管後台動態新增，存在 localStorage
+const DEFAULT_MODEL_DATA = {
   "297": { label: "297 / I 15 Pro",              colors: [{ name: "灰", code: "4F", target: 0   }, { name: "黑", code: "4E", target: 0   }] },
   "298": { label: "298 / I 15 Promax",           colors: [{ name: "灰", code: "4F", target: 206 }, { name: "黑", code: "4E", target: 449 }] },
   "325": { label: "325 / I 16",                  colors: [{ name: "灰", code: "4F", target: 200 }, { name: "黑", code: "4E", target: 472 }] },
@@ -63,8 +64,21 @@ const WELD_MODEL_DATA = {
   "395": { label: "395 / I 17 Promax · I 18 Promax", colors: [{ name: "稜線灰", code: "6D", target: 0 }, { name: "荒徑綠", code: "6E", target: 0 }, { name: "煙嵐紫", code: "6C", target: 0 }, { name: "灰", code: "4F", target: 0 }, { name: "黑", code: "4E", target: 0 }] },
 };
 
-function getColorsForModel(modelCode) {
-  return WELD_MODEL_DATA[modelCode]?.colors || [];
+// 從 localStorage 載入自訂資料，沒有就用預設
+function loadModelData() {
+  try {
+    const saved = localStorage.getItem('weld_model_data');
+    if (saved) return JSON.parse(saved);
+  } catch(e) {}
+  return JSON.parse(JSON.stringify(DEFAULT_MODEL_DATA));
+}
+
+function saveModelData(data) {
+  try { localStorage.setItem('weld_model_data', JSON.stringify(data)); } catch(e) {}
+}
+
+function getColorsForModel(modelCode, modelData) {
+  return (modelData || loadModelData())[modelCode]?.colors || [];
 }
 
 async function callAPI(payload) {
@@ -98,6 +112,13 @@ function Toast({ message, onClose }) {
 
 function App() {
   const [batches, setBatches] = useState([]);
+  const [modelData, setModelData] = useState(() => loadModelData()); // ★ 型號/顏色資料（可動態新增）
+  const [showModelMgr, setShowModelMgr] = useState(false);          // ★ 型號管理 Modal
+  const [editingModel, setEditingModel] = useState(null);            // 正在編輯的型號代碼
+  const [newColorName, setNewColorName] = useState('');
+  const [newColorCode, setNewColorCode] = useState('');
+  const [newModelCode, setNewModelCode] = useState('');
+  const [newModelLabel, setNewModelLabel] = useState('');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -234,6 +255,45 @@ function App() {
     }
   };
 
+  // ★ 取消結批（已結批 → 進行中）
+  const handleUnclose = async (batch) => {
+    if (!confirm(`取消結批：${batch.line} — ${batch.model}${batch.color}？\n此批將恢復為「進行中」狀態。`)) return;
+    const result = await callAPI({ type: 'batch_unclose', batchId: batch.batchId });
+    if (result.status === 'ok') { setToast('✅ 已取消結批，恢復為進行中'); setTimeout(() => { fetchBatches(statusFilter); fetchAllForCards(); }, 1200); }
+    else setToast('❌ ' + (result.message || '操作失敗'));
+  };
+
+  // ★ 暫停批次（進行中 → 暫停中）
+  const handlePause = async (batch) => {
+    const reason = prompt(`暫停原因（如：插單趕料）：`, '插單趕料');
+    if (reason === null) return;
+    const result = await callAPI({ type: 'batch_pause', batchId: batch.batchId, reason });
+    if (result.status === 'ok') { setToast('⏸️ 批次已暫停'); setTimeout(() => { fetchBatches(statusFilter); fetchAllForCards(); }, 1200); }
+    else setToast('❌ ' + (result.message || '操作失敗'));
+  };
+
+  // ★ 恢復批次（暫停中 → 進行中，同線繼續）
+  const handleResume = async (batch) => {
+    if (!confirm(`恢復批次：${batch.line} — ${batch.model}${batch.color}？`)) return;
+    const result = await callAPI({ type: 'batch_resume', batchId: batch.batchId });
+    if (result.status === 'ok') { setToast('▶️ 批次已恢復為進行中'); setTimeout(() => { fetchBatches(statusFilter); fetchAllForCards(); }, 1200); }
+    else setToast('❌ ' + (result.message || '操作失敗'));
+  };
+
+  // ★ 換線：結原批 + 在目標線用剩餘量開新批次
+  const handleTransfer = async (batch) => {
+    const newLine = prompt(`將此批次換線到哪條線？\n\n系統會：\n1. 結批 ${batch.line} 的這筆帳\n2. 用剩餘料（內:${batch.innerRemaining} / 外:${batch.outerRemaining}）在新線開新批次\n\n輸入目標線別（如：3號線）：`, '');
+    if (!newLine || !newLine.trim()) return;
+    if (!LINES.includes(newLine.trim())) { setToast('⚠️ 無效的線別名稱'); return; }
+    const result = await callAPI({ type: 'batch_transfer', batchId: batch.batchId, newLine: newLine.trim() });
+    if (result.status === 'ok') {
+      setToast(`✅ 換線完成：${batch.line} 已結批，${newLine} 已開新批次`);
+      setTimeout(() => { fetchBatches(statusFilter); fetchAllForCards(); }, 1200);
+    } else {
+      setToast('❌ ' + (result.message || '操作失敗'));
+    }
+  };
+
   // ★ 編輯批次：開啟編輯 Modal，並把現有資料帶入表單
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState(null); // 正在編輯的批次完整資料 + batchId
@@ -352,17 +412,25 @@ function App() {
           </h1>
           <p className="text-slate-500 text-sm mt-1">分配批次到產線，作業員開班時自動帶入</p>
         </div>
-        <button onClick={() => setShowCreateModal(true)}
-          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-6 py-3 rounded-xl shadow-lg transition-all active:scale-95 flex items-center gap-2"
-        >
-          <i className="fa-solid fa-plus"></i> 分配新批次
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowModelMgr(true)}
+            className="bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold px-4 py-3 rounded-xl transition-all active:scale-95 flex items-center gap-2"
+          >
+            <i className="fa-solid fa-tags"></i> 型號管理
+          </button>
+          <button onClick={() => setShowCreateModal(true)}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-6 py-3 rounded-xl shadow-lg transition-all active:scale-95 flex items-center gap-2"
+          >
+            <i className="fa-solid fa-plus"></i> 分配新批次
+          </button>
+        </div>
       </div>
 
       {/* 線別總覽卡片 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         {LINES.map(line => {
-          const active = allBatchesForCards.find(b => b.line === line && b.status === '進行中');
+          const active  = allBatchesForCards.find(b => b.line === line && b.status === '進行中');
+          const paused  = allBatchesForCards.find(b => b.line === line && b.status === '暫停中');
           const queueCount = allBatchesForCards.filter(b => b.line === line && b.status === '排隊中').length;
           return (
             <div key={line} className={`rounded-2xl p-4 border ${active ? 'bg-emerald-950/30 border-emerald-700/50' : 'bg-slate-900 border-slate-800'}`}>
@@ -390,6 +458,11 @@ function App() {
                   <i className="fa-solid fa-clock mr-1"></i>排隊中 {queueCount} 筆
                 </div>
               )}
+              {paused && (
+                <div className="mt-2 pt-2 border-t border-slate-700/50 text-orange-400 text-xs font-bold">
+                  <i className="fa-solid fa-pause mr-1"></i>暫停中：{paused.model}{paused.color}
+                </div>
+              )}
             </div>
           );
         })}
@@ -397,7 +470,7 @@ function App() {
 
       {/* 篩選列 */}
       <div className="flex gap-2 mb-4">
-        {['進行中', '排隊中', '已結批', ''].map(s => (
+        {['進行中', '排隊中', '暫停中', '已結批', ''].map(s => (
           <button key={s||'all'} onClick={() => setStatusFilter(s)}
             className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${statusFilter===s ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
           >
@@ -444,13 +517,14 @@ function App() {
                     <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
                       b.status==='進行中' ? 'bg-emerald-500/20 text-emerald-400' :
                       b.status==='排隊中' ? 'bg-amber-500/20 text-amber-400' :
+                      b.status==='暫停中' ? 'bg-orange-500/20 text-orange-400' :
                       'bg-slate-700 text-slate-400'
                     }`}>
                       {b.status}{b.status==='排隊中' && b.queueOrder ? ` #${b.queueOrder}` : ''}
                     </span>
                   </td>
                   <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
-                    <div className="flex items-center justify-center gap-1.5">
+                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
                       <button onClick={() => openDetailModal(b)} className="bg-cyan-900/60 hover:bg-cyan-800 text-cyan-300 text-xs font-bold px-3 py-1.5 rounded-lg">
                         <i className="fa-solid fa-chart-simple"></i> 詳情
                       </button>
@@ -458,8 +532,28 @@ function App() {
                         <i className="fa-solid fa-pen"></i> 編輯
                       </button>
                       {b.status === '進行中' && (
+                        <button onClick={() => handlePause(b)} className="bg-orange-900/60 hover:bg-orange-800 text-orange-300 text-xs font-bold px-3 py-1.5 rounded-lg">
+                          ⏸ 暫停
+                        </button>
+                      )}
+                      {b.status === '進行中' && (
                         <button onClick={() => handleClose(b)} className="bg-amber-900/60 hover:bg-amber-800 text-amber-300 text-xs font-bold px-3 py-1.5 rounded-lg">
                           手動結批
+                        </button>
+                      )}
+                      {b.status === '暫停中' && (
+                        <button onClick={() => handleResume(b)} className="bg-emerald-900/60 hover:bg-emerald-800 text-emerald-300 text-xs font-bold px-3 py-1.5 rounded-lg">
+                          ▶ 恢復
+                        </button>
+                      )}
+                      {b.status === '暫停中' && (
+                        <button onClick={() => handleTransfer(b)} className="bg-purple-900/60 hover:bg-purple-800 text-purple-300 text-xs font-bold px-3 py-1.5 rounded-lg">
+                          ↔ 換線
+                        </button>
+                      )}
+                      {b.status === '已結批' && (
+                        <button onClick={() => handleUnclose(b)} className="bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-bold px-3 py-1.5 rounded-lg">
+                          取消結批
                         </button>
                       )}
                       <button onClick={() => handleDelete(b)} className="bg-red-900/60 hover:bg-red-800 text-red-300 text-xs font-bold px-3 py-1.5 rounded-lg">
@@ -508,7 +602,7 @@ function App() {
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-bold text-cyan-300 outline-none focus:border-emerald-500"
                 >
                   <option value="">-- 選擇機型 --</option>
-                  {Object.entries(WELD_MODEL_DATA).map(([code, info]) => (
+                  {Object.entries(modelData).map(([code, info]) => (
                     <option key={code} value={code}>{info.label}</option>
                   ))}
                   <option value="__new">新機型（手動輸入）</option>
@@ -541,13 +635,13 @@ function App() {
                   <select value={form.colorCode}
                     onChange={e => {
                       const cc = e.target.value;
-                      const picked = getColorsForModel(form.modelCode).find(c => c.code === cc);
+                      const picked = getColorsForModel(form.modelCode, modelData).find(c => c.code === cc);
                       setForm(p => ({...p, colorCode: cc, color: picked?.name || '', target: picked?.target || ''}));
                     }}
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-bold text-purple-300 outline-none"
                   >
                     <option value="">-- 選顏色 --</option>
-                    {getColorsForModel(form.modelCode).map(c => (
+                    {getColorsForModel(form.modelCode, modelData).map(c => (
                       <option key={c.code} value={c.code}>{c.name}（{c.code}）{c.target > 0 ? ` ➜ 參考目標 ${c.target}` : ''}</option>
                     ))}
                   </select>
@@ -722,6 +816,101 @@ function App() {
               >
                 <i className="fa-solid fa-check mr-2"></i>確認儲存修改
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ★ 型號管理 Modal */}
+      {showModelMgr && (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center p-5 border-b border-slate-800 shrink-0">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <i className="fa-solid fa-tags text-emerald-400"></i> 型號 / 顏色管理
+              </h3>
+              <button onClick={() => { setShowModelMgr(false); setEditingModel(null); }}
+                className="text-slate-400 hover:text-white px-3 py-2 rounded-xl hover:bg-slate-800">
+                <i className="fa-solid fa-xmark text-xl"></i>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {/* 新增型號 */}
+              <div className="bg-slate-800/40 rounded-xl p-4">
+                <div className="text-slate-400 text-xs font-bold mb-3">新增型號</div>
+                <div className="flex gap-2">
+                  <input type="text" value={newModelCode} onChange={e => setNewModelCode(e.target.value)}
+                    placeholder="型號代碼（如：396）"
+                    className="flex-1 bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-emerald-500 text-white"
+                  />
+                  <input type="text" value={newModelLabel} onChange={e => setNewModelLabel(e.target.value)}
+                    placeholder="型號名稱（如：396 / I 18）"
+                    className="flex-[2] bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-emerald-500 text-white"
+                  />
+                  <button onClick={() => {
+                    if (!newModelCode.trim() || !newModelLabel.trim()) return;
+                    if (modelData[newModelCode]) { alert('此型號代碼已存在'); return; }
+                    const updated = { ...modelData, [newModelCode.trim()]: { label: newModelLabel.trim(), colors: [] } };
+                    setModelData(updated); saveModelData(updated);
+                    setNewModelCode(''); setNewModelLabel('');
+                  }} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-lg text-sm whitespace-nowrap">
+                    新增型號
+                  </button>
+                </div>
+              </div>
+
+              {/* 各型號的顏色管理 */}
+              {Object.entries(modelData).map(([code, info]) => (
+                <div key={code} className="bg-slate-800/30 rounded-xl p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="font-bold text-white">{info.label}</div>
+                    <button onClick={() => setEditingModel(editingModel === code ? null : code)}
+                      className="text-xs text-cyan-400 hover:text-cyan-300 font-bold px-3 py-1 rounded-lg bg-cyan-950/30 hover:bg-cyan-950/50">
+                      {editingModel === code ? '收起' : '管理顏色'}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {info.colors.map((c, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5 bg-slate-700/60 rounded-lg px-2.5 py-1 text-xs">
+                        <span className="text-white font-bold">{c.name}</span>
+                        <span className="text-slate-400">({c.code})</span>
+                        {editingModel === code && (
+                          <button onClick={() => {
+                            const updated = JSON.parse(JSON.stringify(modelData));
+                            updated[code].colors.splice(idx, 1);
+                            setModelData(updated); saveModelData(updated);
+                          }} className="text-red-400 hover:text-red-300 ml-1">
+                            <i className="fa-solid fa-xmark text-xs"></i>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {info.colors.length === 0 && <span className="text-slate-600 text-xs">尚未設定顏色</span>}
+                  </div>
+                  {editingModel === code && (
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-slate-700">
+                      <input type="text" value={newColorName} onChange={e => setNewColorName(e.target.value)}
+                        placeholder="顏色名稱（如：沙漠金）"
+                        className="flex-1 bg-slate-950 border border-slate-700 rounded-lg p-2 text-sm outline-none focus:border-emerald-500 text-white"
+                      />
+                      <input type="text" value={newColorCode} onChange={e => setNewColorCode(e.target.value)}
+                        placeholder="顏色代碼（如：6F）"
+                        className="w-28 bg-slate-950 border border-slate-700 rounded-lg p-2 text-sm outline-none focus:border-emerald-500 text-white"
+                      />
+                      <button onClick={() => {
+                        if (!newColorName.trim() || !newColorCode.trim()) return;
+                        const updated = JSON.parse(JSON.stringify(modelData));
+                        updated[code].colors.push({ name: newColorName.trim(), code: newColorCode.trim().toUpperCase(), target: 0 });
+                        setModelData(updated); saveModelData(updated);
+                        setNewColorName(''); setNewColorCode('');
+                      }} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-lg text-sm whitespace-nowrap">
+                        新增顏色
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </div>
