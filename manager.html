@@ -895,15 +895,23 @@ function App() {
                                 <div className="grid grid-cols-2 gap-3">
                                   <div>
                                     <label className="block text-emerald-400 text-xs font-bold mb-1.5">轉良品</label>
-                                    <input type="number" value={resolveGoodQty}
-                                      onChange={e => setResolveGoodQty(e.target.value)}
+                                    <input type="number" value={resolveGoodQty} min="0" max={item.remainingQty}
+                                      onChange={e => {
+                                        const v = Math.max(0, Math.min(parseInt(e.target.value)||0, item.remainingQty));
+                                        setResolveGoodQty(String(v));
+                                        setResolveBadQty(String(item.remainingQty - v));
+                                      }}
                                       className="w-full bg-slate-950 border border-emerald-700/50 rounded-xl p-3 text-2xl font-mono font-bold text-emerald-300 outline-none text-center focus:border-emerald-500"
                                     />
                                   </div>
                                   <div>
                                     <label className="block text-red-400 text-xs font-bold mb-1.5">確定不良</label>
-                                    <input type="number" value={resolveBadQty}
-                                      onChange={e => setResolveBadQty(e.target.value)}
+                                    <input type="number" value={resolveBadQty} min="0" max={item.remainingQty}
+                                      onChange={e => {
+                                        const v = Math.max(0, Math.min(parseInt(e.target.value)||0, item.remainingQty));
+                                        setResolveBadQty(String(v));
+                                        setResolveGoodQty(String(item.remainingQty - v));
+                                      }}
                                       className="w-full bg-slate-950 border border-red-700/50 rounded-xl p-3 text-2xl font-mono font-bold text-red-300 outline-none text-center focus:border-red-500"
                                     />
                                   </div>
