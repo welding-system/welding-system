@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>熔接生產即時看板</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  body { font-family: -apple-system, "Noto Sans TC", sans-serif; background: #060b18; color: #e2e8f0; }
+  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.3} }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .pulse-dot { animation: pulse-dot 2s infinite; }
+  .blink { animation: blink 1s step-end infinite; }
+  ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: #1e293b; }
+  .line-card { border-left: 4px solid; transition: all 0.3s; }
+  .line-card:hover { transform: translateX(2px); }
+  .glow-green { box-shadow: 0 0 20px rgba(34,197,94,0.15); }
+  .glow-amber  { box-shadow: 0 0 20px rgba(245,158,11,0.15); }
+  .glow-red    { box-shadow: 0 0 20px rgba(239,68,68,0.2); }
+  .glow-blue   { box-shadow: 0 0 20px rgba(96,165,250,0.15); }
+  .num-xl { font-family: 'SF Mono', 'Consolas', monospace; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+const API_URL  = "https://script.google.com/macros/s/AKfycbxITB84zMMmsoA85EysG_OnOdW8U7yoCLihJlCE-SRC4FX_9Y1JfOdET7fLp9ga0yUUQw/exec";
+const LINES    = ['1號線','2號線','3號線','4號線','5號線','6號線','7號線','8號線'];
+const REFRESH_INTERVAL = 5 * 60 * 1000; // ★ 自動更新間隔（毫秒）：5分鐘，改這個數字即可
+
+const DEFECT_LABELS = [
+  "熔接不良(正)","熔接不良(反)","熔接不良(側)","熔接不良(底)",
+  "損傷","組裝不良","機台操作不當","調機不良","髒污",
+  "按鈕對位","相機鍵異常","異色點","鏟傷多肉","其他"
+];
+
+// 取今天日期字串
+function todayStr() {
+  return new Date().toLocaleDateString('zh-TW', { timeZone:'Asia/Taipei', year:'numeric', month:'2-digit', day:'2-digit' }).replace(/\//g,'-');
+}
+
+// 取當前班別
+function getCurrentShift() {
+  const h = new Date().getHours();
+  if (h >= 8  && h < 16) return { name:'早班', label:'早班 (08:00 - 16:00)', color:'text-amber-400' };
+  if (h >= 16 && h < 24) return { name:'中班', label:'中班 (16:00 - 00:00)', color:'text-cyan-400' };
+  return { name:'夜班', label:'夜班 (00:00 - 08:00)', color:'text-indigo-400' };
+}
+
+// 時鐘元件
+function Clock() {
+  const [t, setT] = useState(new Date());
+  useEffect(() => { const i = setInterval(() => setT(new Date()), 1000); return () => clearInterval(i); }, []);
+  const hh = String(t.getHours()).padStart(2,'0');
+  const mm = String(t.getMinutes()).padStart(2,'0');
+  const ss = String(t.getSeconds()).padStart(2,'0');
+  return (
+    <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-700 rounded-xl px-4 py-2">
+      <i className="fa-regular fa-clock text-slate-400 text-sm"></i>
+      <span className="num-xl text-xl font-bold text-white">{hh}<span className="blink">:</span>{mm}<span className="blink">:</span>{ss}</span>
+    </div>
+  );
+}
+
+// 進度條
+function ProgressBar({ value, max, color = 'bg-cyan-500' }) {
+  const pct = max > 0 ? Math.min(100, value / max * 100) : 0;
+  return (
+    <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+      <div className={`h-full rounded-full transition-all duration-1000 ${color}`} style={{ width: pct + '%' }}></div>
+    </div>
+  );
+}
+
+// 數字顯示
+function Stat({ label, value, unit = '', color = 'text-white', size = 'text-3xl' }) {
+  return (
+    <div className="flex flex-col items-center min-w-0">
+      <div className="text-slate-500 text-[10px] font-bold tracking-wide mb-1 flex items-center gap-1">{label}</div>
+      <div className={`num-xl ${size} font-bold ${color} leading-none`}>{value}<span className="text-sm font-normal text-slate-500 ml-0.5">{unit}</span></div>
+    </div>
+  );
+}
+
+// 線別卡片
+function LineCard({ line, data, machData }) {
+  const batch   = data?.batch;
+  const isIdle  = !batch;
+  const isTune  = batch?.batchStatus === '暫停中' || (machData?.lastStatus === '調機');
+  const isError = machData?.lastStatus === '異常';
+
+  // 計算今日這條線的報工彙整（目前這批/今天）
+  const weldRows = data?.todayRows || [];
+  const input  = weldRows.reduce((s,r) => s + (r.input||0), 0);
+  const good   = weldRows.reduce((s,r) => s + (r.good||0), 0);
+  const defect = weldRows.reduce((s,r) => s + (r.defect||0), 0);
+  const rework = weldRows.reduce((s,r) => s + (r.rework||0), 0);
+  const target = batch?.target || 0;
+  const tuneMin = machData?.tuneMin || 0;
+
+  const yieldRate   = input > 0 ? (good / input * 100).toFixed(1) : 0;
+  const achieveRate = target > 0 ? (good / target * 100).toFixed(1) : 0;
+  const oeeRate     = machData?.oeeRate ?? 0;
+  const reworkRate  = input > 0 ? (rework / input * 100).toFixed(1) : 0;
+
+  // 不良 TOP3
+  const defectMap = {};
+  weldRows.forEach(r => {
+    DEFECT_LABELS.forEach((lbl, i) => {
+      if (r.defectDetails?.[i] > 0) defectMap[lbl] = (defectMap[lbl]||0) + r.defectDetails[i];
+    });
+  });
+  const top3 = Object.entries(defectMap).sort((a,b) => b[1]-a[1]).slice(0,3);
+
+  // 狀態
+  let statusLabel, statusBg, borderColor, glowClass;
+  if (isIdle) {
+    statusLabel = '閒置中'; statusBg = 'bg-slate-700/50 text-slate-400';
+    borderColor = '#475569'; glowClass = '';
+  } else if (isTune) {
+    statusLabel = '調機中'; statusBg = 'bg-blue-900/60 text-blue-300';
+    borderColor = '#60a5fa'; glowClass = 'glow-blue';
+  } else if (isError) {
+    statusLabel = '⚠ 異常'; statusBg = 'bg-red-900/60 text-red-300';
+    borderColor = '#ef4444'; glowClass = 'glow-red';
+  } else if (Number(yieldRate) < 90 && input > 0) {
+    statusLabel = '生產中'; statusBg = 'bg-red-900/40 text-red-400';
+    borderColor = '#ef4444'; glowClass = 'glow-red';
+  } else if (Number(yieldRate) < 97 && input > 0) {
+    statusLabel = '生產中'; statusBg = 'bg-amber-900/40 text-amber-400';
+    borderColor = '#f59e0b'; glowClass = 'glow-amber';
+  } else {
+    statusLabel = '生產中'; statusBg = 'bg-emerald-900/40 text-emerald-400';
+    borderColor = '#22c55e'; glowClass = 'glow-green';
+  }
+
+  return (
+    <div className={`line-card ${glowClass} bg-slate-900/70 rounded-2xl p-4 mb-3`} style={{ borderLeftColor: borderColor }}>
+      <div className="flex items-center gap-3 flex-wrap">
+
+        {/* 線別 + 狀態 + 批次資訊 */}
+        <div className="w-36 shrink-0">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-white font-bold text-lg">{line}</span>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusBg}`}>{statusLabel}</span>
+          </div>
+          {batch ? (
+            <div className="space-y-1">
+              <div className="flex gap-1">
+                <span className="text-slate-600 text-[10px]">型號</span>
+                <span className="text-slate-300 text-[10px] font-mono font-bold">{batch.model}{batch.color?.slice(0,1)}</span>
+              </div>
+              <div className="flex gap-1">
+                <span className="text-slate-600 text-[10px]">批號</span>
+                <span className="text-slate-400 text-[10px]">{batch.batchNo}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-slate-600 text-xs">尚未分配批次</div>
+          )}
+        </div>
+
+        {/* 數據欄位 */}
+        <div className="flex-1 grid grid-cols-6 gap-2 items-center min-w-0">
+          <Stat label="🎯 目標" value={target || '—'} color="text-slate-300" />
+          <Stat label="📈 投入" value={input}  color="text-cyan-300" />
+          <Stat label="✅ 良品" value={good}   color={Number(yieldRate)>=97?'text-emerald-400':Number(yieldRate)>=90?'text-amber-400':'text-red-400'} size="text-3xl" />
+          <Stat label="❌ 不良" value={defect} color={defect>0?'text-red-400':'text-slate-500'} />
+          <Stat label="🔄 重工" value={rework} color={rework>0?'text-amber-400':'text-slate-500'} />
+          <Stat label="⚙ 調機(m)" value={tuneMin} color={tuneMin>30?'text-orange-400':'text-blue-400'} />
+        </div>
+
+        {/* 不良 TOP3 */}
+        <div className="w-40 shrink-0">
+          <div className="text-slate-600 text-[9px] font-bold mb-1.5 flex items-center gap-1">
+            <i className="fa-solid fa-list-ol"></i> 不良 TOP3
+          </div>
+          {top3.length > 0 ? top3.map(([lbl, cnt], i) => (
+            <div key={lbl} className="flex items-center gap-1.5 mb-1">
+              <span className="text-[9px] text-slate-600 w-3">{i+1}</span>
+              <span className="text-[10px] text-slate-300 flex-1 truncate">{lbl}</span>
+              <span className="text-[10px] text-red-400 font-bold font-mono">{cnt}</span>
+            </div>
+          )) : (
+            <div className="text-slate-700 text-[10px]">— 無不良記錄 —</div>
+          )}
+        </div>
+
+        {/* 達成率/良率/稼動率/重工率 */}
+        <div className="grid grid-cols-4 gap-3 w-52 shrink-0">
+          {[
+            { label: '達成率', val: achieveRate, unit: '%', color: Number(achieveRate)>=90?'text-emerald-400':Number(achieveRate)>=70?'text-amber-400':'text-red-400' },
+            { label: '良率',   val: yieldRate,   unit: '%', color: Number(yieldRate)>=97?'text-emerald-400':Number(yieldRate)>=90?'text-amber-400':'text-red-400' },
+            { label: '稼動率', val: oeeRate,      unit: '%', color: Number(oeeRate)>=85?'text-cyan-400':'text-amber-400' },
+            { label: '重工率', val: reworkRate,   unit: '%', color: Number(reworkRate)>5?'text-orange-400':'text-slate-400' },
+          ].map(s => (
+            <div key={s.label} className="text-center">
+              <div className="text-slate-600 text-[9px] mb-0.5">{s.label}</div>
+              <div className={`num-xl text-base font-bold ${s.color}`}>{s.val}<span className="text-[10px]">{s.unit}</span></div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 達成率進度條 */}
+      {target > 0 && (
+        <div className="mt-2">
+          <ProgressBar value={good} max={target}
+            color={Number(achieveRate)>=90?'bg-emerald-500':Number(achieveRate)>=70?'bg-amber-500':'bg-red-500'} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── 主元件 ──
+function App() {
+  const [lineData, setLineData]   = useState({});
+  const [loading, setLoading]     = useState(true);
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const [countdown, setCountdown] = useState(REFRESH_INTERVAL / 1000);
+  const countdownRef = useRef(REFRESH_INTERVAL / 1000);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      // 撈今天所有資料
+      const today = todayStr();
+      const [weldRes, machRes, batchRes] = await Promise.all([
+        fetch(`${API_URL}?action=weld_log_range&from=${today}&to=${today}`).then(r=>r.json()),
+        fetch(`${API_URL}?action=machine_log_range&from=${today}&to=${today}`).then(r=>r.json()),
+        fetch(`${API_URL}?action=batch_all`).then(r=>r.json()),
+      ]);
+
+      const weldRows    = weldRes.status  === 'ok' ? weldRes.rows    : [];
+      const machRows    = machRes.status  === 'ok' ? machRes.rows    : [];
+      const allBatches  = batchRes.status === 'ok' ? batchRes.batches : [];
+
+      const result = {};
+      LINES.forEach(line => {
+        // 找這條線目前進行中/暫停中的批次
+        const batch = allBatches.find(b => b.line === line && (b.status === '進行中' || b.status === '暫停中')) || null;
+
+        // 今天這條線的報工紀錄（排除待判校正）
+        const todayRows = weldRows.filter(r => r[3] === line && r[30] !== '待判校正').map(r => ({
+          input: r[10]||0, good: r[11]||0, defect: r[12]||0, rework: r[13]||0,
+          defectDetails: Array.from({length:14}, (_,i) => r[14+i]||0),
+        }));
+
+        // 今天這條線的稼動資料
+        const todayMach = machRows.filter(r => r[3] === line);
+        const activeMin = todayMach.reduce((s,r) => s + Number(r[4]||0), 0);
+        const tuneMin   = todayMach.reduce((s,r) => s + Number(r[5]||0), 0);
+        const stopMin   = todayMach.reduce((s,r) => s + Number(r[6]||0), 0);
+        const idleMin   = todayMach.reduce((s,r) => s + Number(r[12]||0), 0);
+        const totalMin  = activeMin + tuneMin + stopMin + idleMin;
+        const oeeRate   = totalMin > 0 ? +(activeMin / totalMin * 100).toFixed(1) : 0;
+
+        result[line] = {
+          batch,
+          todayRows,
+          machData: { activeMin, tuneMin, stopMin, idleMin, oeeRate },
+        };
+      });
+
+      setLineData(result);
+      setLastUpdate(new Date());
+      countdownRef.current = REFRESH_INTERVAL / 1000;
+    } catch(e) { console.error(e); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchAll();
+    const refreshTimer = setInterval(fetchAll, REFRESH_INTERVAL);
+    const countTimer   = setInterval(() => {
+      countdownRef.current = Math.max(0, countdownRef.current - 1);
+      setCountdown(countdownRef.current);
+    }, 1000);
+    return () => { clearInterval(refreshTimer); clearInterval(countTimer); };
+  }, [fetchAll]);
+
+  const shift = getCurrentShift();
+
+  // 全線總計
+  const totalGood   = LINES.reduce((s,l) => s + (lineData[l]?.todayRows||[]).reduce((ss,r)=>ss+(r.good||0),0), 0);
+  const totalTarget = LINES.reduce((s,l) => s + (lineData[l]?.batch?.target||0), 0);
+  const totalRate   = totalTarget > 0 ? (totalGood / totalTarget * 100).toFixed(1) : '—';
+
+  return (
+    <div className="min-h-screen p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-cyan-500/20 border border-cyan-500/40 rounded-xl flex items-center justify-center">
+            <i className="fa-solid fa-wave-square text-cyan-400"></i>
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-white">熔接生產即時看板</h1>
+            <p className="text-slate-500 text-xs">熔接區生產監控中心 (Welding Area)</p>
+          </div>
+        </div>
+
+        {/* 班別 + 目標進度 */}
+        <div className="flex-1 mx-6 max-w-xl">
+          <div className="flex items-center gap-3 mb-1.5">
+            <span className={`text-sm font-bold px-3 py-1 rounded-full bg-slate-800 border border-slate-700 ${shift.color}`}>
+              ⚡ {shift.label}
+            </span>
+            <span className="text-slate-500 text-xs">每日總目標</span>
+            <span className="text-white font-bold num-xl">{totalTarget.toLocaleString()}</span>
+            <span className="text-slate-500 text-xs">目前總達成</span>
+            <span className="text-cyan-400 font-bold num-xl text-lg">{totalGood.toLocaleString()}</span>
+            <span className={`font-bold num-xl text-lg ${Number(totalRate)>=90?'text-emerald-400':Number(totalRate)>=70?'text-amber-400':'text-red-400'}`}>
+              {totalRate}%
+            </span>
+          </div>
+          <ProgressBar value={totalGood} max={totalTarget}
+            color={Number(totalRate)>=90?'bg-cyan-500':Number(totalRate)>=70?'bg-amber-500':'bg-red-500'} />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Clock />
+          <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2">
+            <div className={`w-2 h-2 rounded-full pulse-dot ${loading ? 'bg-amber-400' : 'bg-emerald-400'}`}></div>
+            <span className="text-slate-400 text-xs">{loading ? '更新中...' : `系統正常`}</span>
+            {!loading && <span className="text-slate-600 text-xs">{countdown}s</span>}
+          </div>
+          <button onClick={fetchAll} className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-white px-3 py-2 rounded-xl text-xs font-bold transition-all">
+            <i className="fa-solid fa-rotate-right mr-1"></i>立即更新
+          </button>
+        </div>
+      </div>
+
+      {/* 說明 */}
+      <div className="flex items-center gap-4 mb-3 text-xs">
+        {[
+          { color: 'bg-emerald-500', label: '良率 ≥ 98% (優良)' },
+          { color: 'bg-amber-500',   label: '良率 90-97% (警告)' },
+          { color: 'bg-red-500',     label: '良率 < 90% (異常)' },
+          { color: 'bg-blue-500',    label: '調機 / 停機狀態' },
+        ].map(s => (
+          <div key={s.label} className="flex items-center gap-1.5">
+            <div className={`w-3 h-3 rounded-sm ${s.color}`}></div>
+            <span className="text-slate-500">{s.label}</span>
+          </div>
+        ))}
+        {lastUpdate && (
+          <span className="ml-auto text-slate-600">
+            最後更新：{lastUpdate.toLocaleTimeString('zh-TW',{hour12:false})}
+          </span>
+        )}
+      </div>
+
+      {/* 各線卡片 */}
+      {loading && !Object.keys(lineData).length ? (
+        <div className="text-center py-20 text-slate-600">
+          <i className="fa-solid fa-spinner fa-spin text-3xl mb-3 block text-cyan-500"></i>
+          載入中...
+        </div>
+      ) : (
+        LINES.map(line => (
+          <LineCard key={line} line={line}
+            data={lineData[line]}
+            machData={lineData[line]?.machData}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</body>
+</html>
