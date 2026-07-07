@@ -8,7 +8,7 @@
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
   body { font-family: -apple-system, "Noto Sans TC", sans-serif; background: #020817; }
@@ -45,7 +45,7 @@ function ChartCanvas({ id, config }) {
   const ref = useRef(null);
   const chartRef = useRef(null);
   useEffect(() => {
-    if (!ref.current) return;
+    if (!ref.current || typeof Chart === 'undefined') return;
     if (chartRef.current) chartRef.current.destroy();
     chartRef.current = new Chart(ref.current.getContext('2d'), config);
     return () => { if (chartRef.current) chartRef.current.destroy(); };
