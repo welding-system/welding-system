@@ -132,6 +132,7 @@ function App() {
   const [exportTo, setExportTo]     = useState(defaultTo);
   const [exportStatus, setExportStatus] = useState(''); // '' / 'loading' / 'done' / 'error'
   const [exportMsg, setExportMsg]   = useState('');
+  const [trendMode, setTrendMode] = useState('day'); // ★ 恢復：'day' | 'batch'
 
   const handleExportToPIM = async () => {
     setExportStatus('loading');
