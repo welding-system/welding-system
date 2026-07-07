@@ -90,6 +90,7 @@ function Stat({ label, value, unit = '', color = 'text-white', size = 'text-3xl'
 // 線別卡片
 function LineCard({ line, data, machData }) {
   const batch   = data?.batch;
+  const currentShift = data?.currentShift;
   const isIdle  = !batch;
   const isTune  = batch?.batchStatus === '暫停中' || (machData?.lastStatus === '調機');
   const isError = machData?.lastStatus === '異常';
@@ -148,6 +149,7 @@ function LineCard({ line, data, machData }) {
           <div className="flex items-center gap-2 mb-2">
             <span className="text-white font-bold text-lg">{line}</span>
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusBg}`}>{statusLabel}</span>
+            {currentShift && <span className="text-[10px] text-slate-500 px-1.5 py-0.5 rounded bg-slate-800">{currentShift}</span>}
           </div>
           {batch ? (
             <div className="space-y-1">
@@ -246,11 +248,20 @@ function App() {
         // 找這條線目前進行中/暫停中的批次
         const batch = allBatches.find(b => b.line === line && (b.status === '進行中' || b.status === '暫停中')) || null;
 
-        // 今天這條線的報工紀錄（排除待判校正）
-        const todayRows = weldRows.filter(r => r[3] === line && r[30] !== '待判校正').map(r => ({
-          input: r[10]||0, good: r[11]||0, defect: r[12]||0, rework: r[13]||0,
-          defectDetails: Array.from({length:14}, (_,i) => r[14+i]||0),
-        }));
+        // 今天這條線的所有報工紀錄（排除待判校正）
+        const allLineRows = weldRows.filter(r => r[3] === line && r[30] !== '待判校正');
+
+        // ★ 判斷當前班別：取最新一筆的班別欄位（row[2]）
+        const sortedRows = [...allLineRows].sort((a,b) => new Date(b[0]) - new Date(a[0]));
+        const currentShiftLabel = sortedRows.length > 0 ? sortedRows[0][2] : null;
+
+        // ★ 只撈當前班別的資料
+        const todayRows = currentShiftLabel
+          ? allLineRows.filter(r => r[2] === currentShiftLabel).map(r => ({
+              input: r[10]||0, good: r[11]||0, defect: r[12]||0, rework: r[13]||0,
+              defectDetails: Array.from({length:14}, (_,i) => r[14+i]||0),
+            }))
+          : [];
 
         // 今天這條線的稼動資料
         const todayMach = machRows.filter(r => r[3] === line);
@@ -264,6 +275,7 @@ function App() {
         result[line] = {
           batch,
           todayRows,
+          currentShift: currentShiftLabel,
           machData: { activeMin, tuneMin, stopMin, idleMin, oeeRate },
         };
       });
@@ -285,7 +297,15 @@ function App() {
     return () => { clearInterval(refreshTimer); clearInterval(countTimer); };
   }, [fetchAll]);
 
+  // 從資料推算當前班別（取有資料的線中最常見的班別）
+  const shiftCounts = {};
+  LINES.forEach(l => {
+    const s = lineData[l]?.currentShift;
+    if (s) shiftCounts[s] = (shiftCounts[s]||0) + 1;
+  });
+  const detectedShift = Object.entries(shiftCounts).sort((a,b)=>b[1]-a[1])[0]?.[0];
   const shift = getCurrentShift();
+  const shiftDisplay = detectedShift || shift.label;
 
   // 全線總計
   const totalGood   = LINES.reduce((s,l) => s + (lineData[l]?.todayRows||[]).reduce((ss,r)=>ss+(r.good||0),0), 0);
@@ -310,7 +330,7 @@ function App() {
         <div className="flex-1 mx-6 max-w-xl">
           <div className="flex items-center gap-3 mb-1.5">
             <span className={`text-sm font-bold px-3 py-1 rounded-full bg-slate-800 border border-slate-700 ${shift.color}`}>
-              ⚡ {shift.label}
+              ⚡ {shiftDisplay}
             </span>
             <span className="text-slate-500 text-xs">每日總目標</span>
             <span className="text-white font-bold num-xl">{totalTarget.toLocaleString()}</span>
