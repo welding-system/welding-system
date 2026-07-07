@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>熔接線生產管理系統</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Noto Sans TC", sans-serif;
+    background: #020817;
+    color: #f1f5f9;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .header { text-align: center; margin-bottom: 48px; }
+  .header h1 { font-size: 28px; font-weight: 800; color: #34d399; margin-bottom: 8px; }
+  .header p { font-size: 14px; color: #64748b; }
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; width: 100%; max-width: 560px; }
+  .card {
+    background: #0f172a;
+    border: 2px solid #1e293b;
+    border-radius: 20px;
+    padding: 32px 24px;
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    transition: all 0.15s ease;
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .card .icon { font-size: 44px; }
+  .card .label { font-size: 17px; font-weight: 800; text-align: center; }
+  .card .desc { font-size: 12px; color: #64748b; text-align: center; line-height: 1.6; }
+  .card.operator { border-color: #064e3b; } .card.operator:hover { border-color: #34d399; background: #022c22; }
+  .card.operator .label { color: #34d399; }
+  .card.manager  { border-color: #1e3a5f; } .card.manager:hover  { border-color: #60a5fa; background: #0c1a2e; }
+  .card.manager  .label { color: #60a5fa; }
+  .card.weekly   { border-color: #2e1065; } .card.weekly:hover   { border-color: #a78bfa; background: #1a0b3d; }
+  .card.weekly   .label { color: #a78bfa; }
+  .card.analysis { border-color: #451a03; } .card.analysis:hover { border-color: #f59e0b; background: #1c0d00; }
+  .card.analysis .label { color: #f59e0b; }
+  .footer { margin-top: 40px; font-size: 11px; color: #1e293b; text-align: center; line-height: 1.8; }
+  @media (max-width: 500px) {
+    .grid { grid-template-columns: 1fr; max-width: 340px; }
+    .card { flex-direction: row; padding: 20px; gap: 16px; text-align: left; align-items: flex-start; }
+    .card .icon { font-size: 32px; flex-shrink: 0; margin-top: 2px; }
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>⚡ 熔接線生產管理系統</h1>
+    <p>選擇要進入的功能畫面</p>
+  </div>
+
+  <div class="grid">
+    <a class="card operator" href="operator.html" target="_blank">
+      <div class="icon">🔧</div>
+      <div>
+        <div class="label">作業員操作面板</div>
+        <div class="desc">報工登記<br>首件確認<br>送外待判</div>
+      </div>
+    </a>
+    <a class="card manager" href="manager.html" target="_blank">
+      <div class="icon">📋</div>
+      <div>
+        <div class="label">主管批次後台</div>
+        <div class="desc">分配批次<br>批次詳情<br>待判回填</div>
+      </div>
+    </a>
+    <a class="card weekly" href="weekly.html" target="_blank">
+      <div class="icon">📊</div>
+      <div>
+        <div class="label">週報彙整看板</div>
+        <div class="desc">線別 / 型號 / 人員<br>三視角週報</div>
+      </div>
+    </a>
+    <a class="card analysis" href="analysis.html" target="_blank">
+      <div class="icon">📈</div>
+      <div>
+        <div class="label">生產分析看板</div>
+        <div class="desc">良率趨勢<br>不良分析<br>稼動率圖表</div>
+      </div>
+    </a>
+  </div>
+
+  <div class="footer">
+    熔接線生產管理系統<br>
+    資料儲存於 Google Sheets · 後端由 Apps Script 提供
+  </div>
+</body>
+</html>

@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>熔接線 — 週報彙整看板</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+  body { font-family: -apple-system, "Noto Sans TC", sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+</style>
+</head>
+<body class="bg-slate-950 text-slate-100">
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo } = React;
+
+// =====================================================
+//  API 設定（跟其他系統共用同一個後端）
+// =====================================================
+const API_URL = "https://script.google.com/macros/s/AKfycbxITB84zMMmsoA85EysG_OnOdW8U7yoCLihJlCE-SRC4FX_9Y1JfOdET7fLp9ga0yUUQw/exec";
+
+// 取得「本週一」「本週日」「上週一」「上週日」日期字串
+function getWeekRange(weeksAgo = 0) {
+  const now = new Date();
+  const dow = now.getDay();
+  const daysSinceMonday = dow === 0 ? 6 : dow - 1;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - daysSinceMonday - (weeksAgo * 7));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  return { from: fmt(monday), to: fmt(sunday) };
+}
+
+function StatCard({ label, value, unit, color, icon }) {
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center gap-4">
+      <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl ${color}`}>
+        <i className={`fa-solid ${icon}`}></i>
+      </div>
+      <div>
+        <div className="text-slate-500 text-xs font-bold tracking-wide">{label}</div>
+        <div className="text-2xl font-mono font-bold text-white">{value}<span className="text-sm text-slate-500 ml-1">{unit}</span></div>
+      </div>
+    </div>
+  );
+}
+
+// Chart.js 圖表元件（柱狀圖）
+function BarChart({ labels, datasets, id }) {
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
+
+  useEffect(() => {
+    if (chartRef.current) chartRef.current.destroy();
+    const ctx = canvasRef.current.getContext('2d');
+    chartRef.current = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: '#cbd5e1' } },
+        },
+        scales: {
+          x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
+          y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
+        },
+      },
+    });
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [labels, datasets]);
+
+  return <canvas ref={canvasRef} id={id}></canvas>;
+}
+
+function App() {
+  const [weekOffset, setWeekOffset] = useState(1); // 1 = 上週（預設）, 0 = 本週
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('line'); // line / model / operator
+  const [range, setRange] = useState(getWeekRange(1));
+
+  const fetchData = (offset) => {
+    const r = getWeekRange(offset);
+    setRange(r);
+    setLoading(true);
+    fetch(`${API_URL}?action=weekly_v2&from=${r.from}&to=${r.to}`)
+      .then(res => res.json())
+      .then(json => { setData(json); setLoading(false); })
+      .catch(() => setLoading(false));
+  };
+
+  useEffect(() => { fetchData(weekOffset); }, [weekOffset]);
+
+  const lineChartData = useMemo(() => {
+    if (!data) return null;
+    return {
+      labels: data.lineReport.map(l => l.line),
+      datasets: [
+        { label: '良率 %', data: data.lineReport.map(l => l.yieldRate), backgroundColor: '#34d399' },
+        { label: '稼動率 %', data: data.lineReport.map(l => l.oee ?? 0), backgroundColor: '#60a5fa' },
+      ],
+    };
+  }, [data]);
+
+  const modelChartData = useMemo(() => {
+    if (!data) return null;
+    const top = data.modelReport.slice(0, 10);
+    return {
+      labels: top.map(m => m.model),
+      datasets: [{ label: '投入數量', data: top.map(m => m.input), backgroundColor: '#a78bfa' }],
+    };
+  }, [data]);
+
+  const operatorChartData = useMemo(() => {
+    if (!data) return null;
+    const top = data.operatorReport.slice(0, 15);
+    return {
+      labels: top.map(o => o.name),
+      datasets: [{ label: '良率 %', data: top.map(o => o.yieldRate), backgroundColor: '#fbbf24' }],
+    };
+  }, [data]);
+
+  return (
+    <div className="min-h-screen p-6 lg:p-10">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-emerald-400 flex items-center gap-3">
+            <i className="fa-solid fa-chart-line"></i> 熔接線週報彙整
+          </h1>
+          <p className="text-slate-500 text-sm mt-1">
+            區間：{range.from} ～ {range.to}　
+            <span className="text-slate-600">每週一上午自動更新「週報彙整」工作表，此看板即時抓取最新資料</span>
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setWeekOffset(p => p + 1)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2.5 rounded-xl transition-all">
+            <i className="fa-solid fa-chevron-left mr-1.5"></i>上一週
+          </button>
+          <button onClick={() => setWeekOffset(1)} className={`px-4 py-2.5 rounded-xl font-bold transition-all ${weekOffset===1 ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>
+            上週
+          </button>
+          <button onClick={() => setWeekOffset(0)} className={`px-4 py-2.5 rounded-xl font-bold transition-all ${weekOffset===0 ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>
+            本週(至今)
+          </button>
+          <button onClick={() => setWeekOffset(p => Math.max(0, p - 1))} className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2.5 rounded-xl transition-all">
+            下一週<i className="fa-solid fa-chevron-right ml-1.5"></i>
+          </button>
+        </div>
+      </div>
+
+      {loading && (
+        <div className="text-center py-20 text-slate-500">
+          <i className="fa-solid fa-spinner fa-spin text-3xl mb-3 block"></i>載入週報資料中...
+        </div>
+      )}
+
+      {!loading && data && data.status === 'ok' && (
+        <>
+          {/* 總計卡片 */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <StatCard label="總投入數量" value={data.total.input} unit="pcs" color="bg-blue-500/20 text-blue-400" icon="fa-cubes" />
+            <StatCard label="總良品數量" value={data.total.good} unit="pcs" color="bg-emerald-500/20 text-emerald-400" icon="fa-circle-check" />
+            <StatCard label="總不良數量" value={data.total.defect} unit="pcs" color="bg-red-500/20 text-red-400" icon="fa-circle-xmark" />
+            <StatCard label="整體良率" value={data.total.yieldRate} unit="%" color="bg-purple-500/20 text-purple-400" icon="fa-percent" />
+          </div>
+
+          {/* Tab 切換 */}
+          <div className="flex gap-2 mb-6">
+            {[
+              { key: 'line', label: '按線別', icon: 'fa-industry' },
+              { key: 'model', label: '按型號', icon: 'fa-tag' },
+              { key: 'operator', label: '按人員', icon: 'fa-user' },
+            ].map(t => (
+              <button key={t.key} onClick={() => setActiveTab(t.key)}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all ${activeTab===t.key ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+              >
+                <i className={`fa-solid ${t.icon}`}></i>{t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* 線別視角 */}
+          {activeTab === 'line' && (
+            <div className="space-y-6">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6" style={{height: '360px'}}>
+                {lineChartData && <BarChart labels={lineChartData.labels} datasets={lineChartData.datasets} id="lineChart" />}
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-400">
+                    <tr>
+                      <th className="p-3 text-left">線別</th>
+                      <th className="p-3 text-right">投入</th>
+                      <th className="p-3 text-right">良品</th>
+                      <th className="p-3 text-right">不良</th>
+                      <th className="p-3 text-right">重工</th>
+                      <th className="p-3 text-right">良率</th>
+                      <th className="p-3 text-right">稼動率</th>
+                      <th className="p-3 text-right">調機分鐘</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.lineReport.map(l => (
+                      <tr key={l.line} className="border-t border-slate-800 hover:bg-slate-800/40">
+                        <td className="p-3 font-bold text-white">{l.line}</td>
+                        <td className="p-3 text-right text-slate-300">{l.input}</td>
+                        <td className="p-3 text-right text-emerald-400">{l.good}</td>
+                        <td className="p-3 text-right text-red-400">{l.defect}</td>
+                        <td className="p-3 text-right text-orange-300">{l.rework}</td>
+                        <td className="p-3 text-right font-bold">{l.yieldRate}%</td>
+                        <td className="p-3 text-right text-blue-300">{l.oee !== null ? l.oee+'%' : '--'}</td>
+                        <td className="p-3 text-right text-teal-300">{l.tuneMin}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* 型號視角 */}
+          {activeTab === 'model' && (
+            <div className="space-y-6">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6" style={{height: '360px'}}>
+                {modelChartData && <BarChart labels={modelChartData.labels} datasets={modelChartData.datasets} id="modelChart" />}
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-400">
+                    <tr>
+                      <th className="p-3 text-left">型號</th>
+                      <th className="p-3 text-right">投入</th>
+                      <th className="p-3 text-right">良品</th>
+                      <th className="p-3 text-right">不良</th>
+                      <th className="p-3 text-right">良率</th>
+                      <th className="p-3 text-left">生產線別</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.modelReport.map(m => (
+                      <tr key={m.model} className="border-t border-slate-800 hover:bg-slate-800/40">
+                        <td className="p-3 font-bold text-cyan-300">{m.model}</td>
+                        <td className="p-3 text-right text-slate-300">{m.input}</td>
+                        <td className="p-3 text-right text-emerald-400">{m.good}</td>
+                        <td className="p-3 text-right text-red-400">{m.defect}</td>
+                        <td className="p-3 text-right font-bold">{m.yieldRate}%</td>
+                        <td className="p-3 text-slate-400">{m.lines}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* 人員視角 */}
+          {activeTab === 'operator' && (
+            <div className="space-y-6">
+              <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 text-amber-300 text-xs">
+                <i className="fa-solid fa-circle-info mr-1.5"></i>
+                同一班次的良品/不良數，組裝、機台、檢驗三個角色都各記一份個人成績，可用來看出何時是誰在班。
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6" style={{height: '400px'}}>
+                {operatorChartData && <BarChart labels={operatorChartData.labels} datasets={operatorChartData.datasets} id="operatorChart" />}
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-400">
+                    <tr>
+                      <th className="p-3 text-left">姓名</th>
+                      <th className="p-3 text-right">投入</th>
+                      <th className="p-3 text-right">良品</th>
+                      <th className="p-3 text-right">不良</th>
+                      <th className="p-3 text-right">良率</th>
+                      <th className="p-3 text-right">參與班次</th>
+                      <th className="p-3 text-left">參與線別</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.operatorReport.map(o => (
+                      <tr key={o.name} className="border-t border-slate-800 hover:bg-slate-800/40">
+                        <td className="p-3 font-bold text-white">{o.name}</td>
+                        <td className="p-3 text-right text-slate-300">{o.input}</td>
+                        <td className="p-3 text-right text-emerald-400">{o.good}</td>
+                        <td className="p-3 text-right text-red-400">{o.defect}</td>
+                        <td className="p-3 text-right font-bold">{o.yieldRate}%</td>
+                        <td className="p-3 text-right text-slate-400">{o.shifts}</td>
+                        <td className="p-3 text-slate-400">{o.lines}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {!loading && (!data || data.status !== 'ok') && (
+        <div className="text-center py-20 text-slate-500">
+          <i className="fa-solid fa-triangle-exclamation text-3xl mb-3 block text-amber-500"></i>
+          無法載入資料，請確認 API 網址設定正確
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

@@ -1,0 +1,2416 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>現場作業員報工終端 - 專業儀表版</title>
+  <!-- 載入 Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 載入 React -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- 載入官方穩定版 Babel Standalone (解決 UMD 環境白屏編譯報錯) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- 載入 FontAwesome 圖示庫 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    /* 隱藏滾動條但保留功能 */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    
+    /* 輸入框外觀修正 */
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { 
+      -webkit-appearance: none; 
+      margin: 0; 
+    }
+  </style>
+</head>
+<body class="bg-slate-950 m-0 overflow-hidden select-none text-slate-100">
+  <div id="root"></div>
+
+  <!-- 註冊自訂預設，強制將 Babel Standalone 設定為 classic runtime 避免模組導入衝突 -->
+  <script>
+    Babel.registerPreset('custom-classic-preset', {
+      presets: [
+        [Babel.availablePresets['env'], { modules: false }],
+        [Babel.availablePresets['react'], { runtime: 'classic' }]
+      ]
+    });
+  </script>
+
+  <!-- 使用自訂註冊的預設進行安全編譯 -->
+  <script type="text/babel" data-presets="custom-classic-preset">
+    const { useState, useEffect, useMemo } = React;
+
+    // --- 作業員名單改為從 Google Sheets「系統設定」分頁動態讀取 ---
+    // 預設值僅在 API 連線失敗時作為備援，正式名單請到 Sheets 編輯，不需要改這支程式
+    const FALLBACK_OPERATORS = ['請連線後台讀取人員名單'];
+
+    // =====================================================
+    //  【熔接產能對照表】來源：熔接產能對照資料分頁，1.1倍目標
+    //  型號資料結構：{ 機型代碼: { 機型名稱, 顏色清單: [{name,code,target}] } }
+    //  若有新色尚未統計，作業員可在面板上手動修改目標數量
+    // =====================================================
+    // =====================================================
+    //  顏色代碼對照（後兩碼）
+    //  4F=灰 4E=黑 6D=稜線灰 6E=荒徑綠 6C=煙嵐紫
+    //  新增顏色直接在此補充即可
+    // =====================================================
+    const COLOR_CODE_MAP = {
+      "4F": "灰",
+      "4E": "黑",
+      "6D": "稜線灰",
+      "6E": "荒徑綠",
+      "6C": "煙嵐紫",
+    };
+
+    const WELD_MODEL_DATA = {
+      // ── 舊機型（有產能統計，1.1倍目標）──────────────────
+      "297": { label: "297 / I 15 Pro",              colors: [{ name: "灰", code: "4F", target: 0   }, { name: "黑", code: "4E", target: 0   }] },
+      "298": { label: "298 / I 15 Promax",           colors: [{ name: "灰", code: "4F", target: 206 }, { name: "黑", code: "4E", target: 449 }] },
+      "325": { label: "325 / I 16",                  colors: [{ name: "灰", code: "4F", target: 200 }, { name: "黑", code: "4E", target: 472 }] },
+      "326": { label: "326 / I 16 Plus",             colors: [{ name: "灰", code: "4F", target: 162 }, { name: "黑", code: "4E", target: 0   }] },
+      "327": { label: "327 / I 16 Pro",              colors: [{ name: "灰", code: "4F", target: 273 }, { name: "黑", code: "4E", target: 307 }] },
+      "328": { label: "328 / I 16 Promax",           colors: [{ name: "灰", code: "4F", target: 216 }, { name: "黑", code: "4E", target: 449 }] },
+      "342": { label: "342 / I 16e",                 colors: [{ name: "灰", code: "4F", target: 282 }, { name: "黑", code: "4E", target: 582 }] },
+      "350": { label: "350 / I 17",                  colors: [{ name: "灰", code: "4F", target: 245 }, { name: "黑", code: "4E", target: 267 }] },
+      "351": { label: "351 / I 17 Air",              colors: [{ name: "灰", code: "4F", target: 231 }, { name: "黑", code: "4E", target: 0   }] },
+      "352": { label: "352 / I 17 Pro",              colors: [{ name: "灰", code: "4F", target: 308 }, { name: "黑", code: "4E", target: 522 }] },
+      "353": { label: "353 / I 17 Promax",           colors: [{ name: "灰", code: "4F", target: 185 }, { name: "黑", code: "4E", target: 557 }] },
+      "372": { label: "372 / S26",                   colors: [{ name: "灰", code: "4F", target: 191 }, { name: "黑", code: "4E", target: 353 }] },
+      "374": { label: "374 / S26 Ultra",             colors: [{ name: "灰", code: "4F", target: 229 }, { name: "黑", code: "4E", target: 348 }] },
+      // ── 新機型（尚無產能統計，目標請手動輸入）──────────
+      "394": { label: "394 / I 17 Pro · I 18 Pro",  colors: [{ name: "稜線灰", code: "6D", target: 0 }, { name: "荒徑綠", code: "6E", target: 0 }, { name: "煙嵐紫", code: "6C", target: 0 }, { name: "灰", code: "4F", target: 0 }, { name: "黑", code: "4E", target: 0 }] },
+      "395": { label: "395 / I 17 Promax · I 18 Promax", colors: [{ name: "稜線灰", code: "6D", target: 0 }, { name: "荒徑綠", code: "6E", target: 0 }, { name: "煙嵐紫", code: "6C", target: 0 }, { name: "灰", code: "4F", target: 0 }, { name: "黑", code: "4E", target: 0 }] },
+    };
+
+    // 查詢目標產量（機型代碼 + 顏色代碼）
+    function getWeldTarget(modelCode, colorCode) {
+      const m = WELD_MODEL_DATA[modelCode];
+      if (!m) return 0;
+      const c = m.colors.find(x => x.code === colorCode);
+      return c ? c.target : 0;
+    }
+
+    // 取得某機型的顏色清單
+    function getColorsForModel(modelCode) {
+      return WELD_MODEL_DATA[modelCode]?.colors || [];
+    }
+
+    // 固定不良原因清單
+    const INITIAL_DEFECT_REASONS = [
+      '熔接不良(正)', '熔接不良(反)', '熔接不良(側)', '熔接不良(底)', 
+      '損傷', '組裝不良', '機台操作不當', '調機不良',
+      '髒污', '按鈕對位(導盲線偏移)', '相機鍵功能異常', '異色點', '鐘傷多肉', '其他'
+    ];
+
+    // ── API 設定 ──────────────────────────────────────────────
+    const API_URL = "https://script.google.com/macros/s/AKfycbxITB84zMMmsoA85EysG_OnOdW8U7yoCLihJlCE-SRC4FX_9Y1JfOdET7fLp9ga0yUUQw/exec";
+
+    async function sendToAPI(payload) {
+      try {
+        await fetch(API_URL, { method:"POST", mode:"no-cors", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload) });
+      } catch(e) { console.warn("送出失敗:", e); }
+    }
+    function getCurrentPeriod() {
+      const now = new Date(), h = now.getHours();
+      return `${String(h).padStart(2,'0')}:00-${String(h+1).padStart(2,'0')}:00`;
+    }
+
+    function App() {
+      // 🌟 APP 畫面控制：'login'=接班登入(初始) | 'production'=生產中 | 'batch'=換批設定
+      const [appScreen, setAppScreen] = useState('login');
+
+      // 1. 產線與批次資訊（初始全空白，等登入後填入）
+      const [lineInfo, setLineInfo] = useState({
+        name: '1號線',
+        assembler: '',
+        machineOp: '',
+        inspector: '',
+        model: '',
+        color: '',
+        modelCode: '',
+        colorCode: '',
+        batch: '第一批',
+        target: 0
+      });
+
+      // 2. 核心報工計數狀態（全部從 0 開始）
+      const [goodCount, setGoodCount] = useState(0);
+      
+      const [reworkDetails, setReworkDetails] = useState({'正面': 0, '背面': 0, '側邊': 0, '底部': 0});
+      
+      const [faiCount, setFaiCount] = useState(0);
+      const [batchFaiCount, setBatchFaiCount] = useState(0);
+      
+      const [cumulativeFaiCount, setCumulativeFaiCount] = useState(0); 
+      const [cumulativeIncomingInner, setCumulativeIncomingInner] = useState(0);
+      const [cumulativeIncomingOuter, setCumulativeIncomingOuter] = useState(0);
+
+      const [defectDetails, setDefectDetails] = useState({});
+      const [fleshyCount, setFleshyCount] = useState(0); 
+      const [pendingDetails, setPendingDetails] = useState({});
+      const [newPendingName, setNewPendingName] = useState('');
+      const [pendingTargets, setPendingTargets] = useState({});
+
+      const [incomingInnerDefect, setIncomingInnerDefect] = useState(0);
+      const [incomingOuterDefect, setIncomingOuterDefect] = useState(0);
+
+      const [initialInner, setInitialInner] = useState(0);
+      const [initialOuter, setInitialOuter] = useState(0);
+
+      // 發料差異（短發為負數，多發為正數）
+      const [innerDiff, setInnerDiff] = useState(0);  // 內層差異
+      const [outerDiff, setOuterDiff] = useState(0);  // 外層差異
+
+      // ★ 狀態計時系統（取代機台稼動程式，無網路環境暫時方案）
+      // 各狀態累計秒數：當班結算或結批時清零，用於計算稼動率/調機時長
+      const [statusDurations, setStatusDurations] = useState({
+        running: 0, setup_lc: 0, setup_fb: 0, setup_sb: 0, error: 0, idle: 0,
+      });
+      const [statusStartTime, setStatusStartTime] = useState(() => Date.now()); // 目前狀態從何時開始計時
+      const [pauseReasonLog, setPauseReasonLog] = useState([]); // 異常暫停的具體原因清單（含時長）
+      const [showMaterialDiffModal, setShowMaterialDiffModal] = useState(false);
+      const [tempInnerDiff, setTempInnerDiff] = useState('');
+      const [tempOuterDiff, setTempOuterDiff] = useState('');
+
+      // ★ 送外待判（跨天，存到 Sheets，所有線可查）
+      const [showSendOutModal, setShowSendOutModal] = useState(false);
+      const [sendOutQty, setSendOutQty] = useState('');
+      const [sendOutSamplerName, setSendOutSamplerName] = useState(''); // ★ 領走人姓名
+      const [sendOutSampledQty, setSendOutSampledQty] = useState('');   // ★ 領走數量
+      const [sendOutReason, setSendOutReason] = useState('');
+      const [sendOutDate, setSendOutDate] = useState(() => new Date().toISOString().slice(0,10));
+      const [showPendingQueryModal, setShowPendingQueryModal] = useState(false);
+      const [pendingQueryList, setPendingQueryList] = useState([]);
+      const [pendingQueryLoading, setPendingQueryLoading] = useState(false);
+      const [pendingQueryFilter, setPendingQueryFilter] = useState('待判中');
+      const [resolvingItem, setResolvingItem] = useState(null); // 正在回填結果的項目
+      // ★ 拆分回填表單：[{ result: '良品'|不良分類, qty: N }, ...]
+      const [resolveRows, setResolveRows] = useState([]);
+      // ★ 新版回填：兩個數字框
+      const [panelResolveGoodQty, setPanelResolveGoodQty] = useState('');
+      const [panelResolveBadQty, setPanelResolveBadQty] = useState('');
+      const [panelResolveBadReason, setPanelResolveBadReason] = useState('');
+      const [sampledQtyInput, setSampledQtyInput] = useState(''); // QC抽樣送驗數量輸入
+      const [samplerNameInput, setSamplerNameInput] = useState(''); // ★ 抽樣人員姓名輸入
+
+      // ★ 主管分配批次：自動讀取該線目前批次
+      const [currentBatch, setCurrentBatch] = useState(null);
+      const [batchLoading, setBatchLoading] = useState(false);
+      const [currentBatchId, setCurrentBatchId] = useState(null); // 用於下班結算時更新批次
+      const [showNextBatchConfirm, setShowNextBatchConfirm] = useState(null); // 結批後自動接續的下一批資訊（需作業員確認）
+      const [isIdleMode, setIsIdleMode] = useState(false); // ★ 閒置等待模式：這條線目前沒有批次，但仍可走交接班流程
+
+      // ★ 作業員名單：從 Sheets「系統設定」動態讀取
+      const [operatorsList, setOperatorsList] = useState(FALLBACK_OPERATORS);
+      const [operatorsLoading, setOperatorsLoading] = useState(true);
+
+      // 3. 機台狀態與 Modal 狀態
+      const [status, setStatus] = useState('running'); 
+      const [pauseReasons, setPauseReasons] = useState(['缺料等待', '機台維修', '模具更換']);
+      const [currentPauseReason, setCurrentPauseReason] = useState('');
+      const [newPauseInput, setNewPauseInput] = useState('');
+      
+      const [showPauseModal, setShowPauseModal] = useState(false);
+      const [showDefectModal, setShowDefectModal] = useState(false);
+      const [showPendingModal, setShowPendingModal] = useState(false);
+      const [showReworkModal, setShowReworkModal] = useState(false); // 重工明細彈窗
+      const [showMaterialModal, setShowMaterialModal] = useState(false); // 領料登記視窗改裝為：物料餘量與自動盤點對帳
+      const [showIncomingDefectModal, setShowIncomingDefectModal] = useState(false); // 來料不良視窗
+      const [showFaiModal, setShowFaiModal] = useState(false); // 首件確認視窗
+      
+      // 下班與接班 Login Modal
+      const [showHandoverModal, setShowHandoverModal] = useState(false);
+      const [showLoginModal, setShowLoginModal] = useState(false);
+
+      const [nextShiftStaff, setNextShiftStaff] = useState({ assembler: '', machineOp: '', inspector: '' });
+      
+      // 下班時同時結批
+      const [handoverWithBatchClose, setHandoverWithBatchClose] = useState(false);
+
+      // FAI 首件確認勾選單狀態
+      const [faiChecklist, setFaiChecklist] = useState({
+        weldCheck: false,
+        sizeCheck: false,
+        feelCheck: false,
+        waterTest: '', // ★ 進水測試結果：''=未選擇 / 'pass'=通過 / 'fail'=不通過（不影響能否送出首件）
+      });
+
+      // 4. 系統狀態與自訂 Toast 防呆警示
+      const [currentTime, setCurrentTime] = useState(new Date());
+      const [handoverNote, setHandoverNote] = useState(''); 
+      const [customReasonInput, setCustomReasonInput] = useState(''); 
+      const [editingLogId, setEditingLogId] = useState(null);
+      const [editingText, setEditingText] = useState('');
+      const [toastMsg, setToastMsg] = useState('');
+
+      const [handoverLogs, setHandoverLogs] = useState([
+        { id: 3, shift: '早班', shiftStyle: 'bg-amber-500/20 text-amber-400 border-amber-500/30', time: '08:10', operator: '張大飛', text: '✅ [首件確認] 早班開班首件檢驗合格，檢驗項目（熔接、外觀、對位手感）皆符合標準書規範，首件已移至首件專用架。' },
+        { id: 2, shift: '早班', shiftStyle: 'bg-amber-500/20 text-amber-400 border-amber-500/30', time: '15:45', operator: '林小明', text: '機台參數已微調，目前良率穩定。' },
+        { id: 1, shift: '夜班', shiftStyle: 'bg-blue-500/20 text-blue-400 border-blue-500/30', time: '07:50', operator: '陳建宏', text: 'M4螺絲快用完了，已通知倉管補料。' }
+      ]);
+
+      // 觸發自訂警告 Toast
+      const showToast = (msg) => {
+        setToastMsg(msg);
+        setTimeout(() => setToastMsg(''), 3000);
+      };
+
+      // --- 計算屬性 ---
+      const pendingCount = useMemo(() => Object.values(pendingDetails).reduce((sum, val) => sum + val, 0), [pendingDetails]);
+      const totalDefect = useMemo(() => Object.values(defectDetails).reduce((sum, count) => sum + count, 0), [defectDetails]);
+      const reworkCount = useMemo(() => Object.values(reworkDetails).reduce((sum, val) => sum + val, 0), [reworkDetails]); // 重工總數動態計算
+      const totalInput = goodCount + totalDefect + pendingCount; // 已加工結合總數 (當班投入數)
+      const currentYield = totalInput === 0 ? 0 : ((goodCount / totalInput) * 100).toFixed(1);
+
+      // ★ 即時稼動率：累計各狀態秒數 + 目前狀態正在進行的秒數（每秒重新計算，靠 currentTime 觸發重渲染）
+      const liveOEE = useMemo(() => {
+        const liveElapsed = Math.max(0, Math.round((currentTime.getTime() - statusStartTime) / 1000));
+        const durations = { ...statusDurations, [status]: (statusDurations[status] || 0) + liveElapsed };
+        const totalSec = Object.values(durations).reduce((a, b) => a + b, 0);
+        const runningSec = durations.running || 0;
+        return {
+          rate: totalSec > 0 ? ((runningSec / totalSec) * 100).toFixed(1) : '0.0',
+          runningMin: Math.floor(runningSec / 60),
+          setupMin: Math.floor(((durations.setup_lc||0) + (durations.setup_fb||0) + (durations.setup_sb||0)) / 60),
+          pauseMin: Math.floor((durations.error || 0) / 60),
+          totalMin: Math.floor(totalSec / 60),
+        };
+      }, [statusDurations, statusStartTime, status, currentTime]);
+      
+      // 達成率 = (當班投入數量 / 目標數量) * 100%
+      const achieveRate = useMemo(() => {
+        return lineInfo.target === 0 ? 0 : ((totalInput / lineInfo.target) * 100).toFixed(1);
+      }, [totalInput, lineInfo.target]);
+
+      // 累計已被當班消耗的實物料量 (已加工結合數 + 當班累計首件數) 
+      const innerMaterialQty = useMemo(() => totalInput + batchFaiCount, [totalInput, batchFaiCount]);
+      const outerMaterialQty = useMemo(() => totalInput + batchFaiCount, [totalInput, batchFaiCount]);
+
+      // 🌟 核心防呆公式：剩餘可用線邊素材 = 當班發料量 - 當班結合數 - 當班素材不良 - 當班首件消耗
+      const remainingInner = useMemo(() => {
+        return Math.max(0, initialInner + innerDiff - totalInput - incomingInnerDefect - batchFaiCount);
+      }, [initialInner, innerDiff, totalInput, incomingInnerDefect, batchFaiCount]);
+
+      const remainingOuter = useMemo(() => {
+        return Math.max(0, initialOuter + outerDiff - totalInput - incomingOuterDefect - batchFaiCount);
+      }, [initialOuter, outerDiff, totalInput, incomingOuterDefect, batchFaiCount]);
+
+      // 物料用盡防呆鎖定狀態 (內層或外層只要有一邊歸零，即阻斷當班增量按鈕)
+      const isMaterialExhausted = useMemo(() => {
+        return isIdleMode || remainingInner <= 0 || remainingOuter <= 0;
+      }, [isIdleMode, remainingInner, remainingOuter]);
+
+      // 賸餘比例計算 (可視化進度條用)
+      const innerPercent = useMemo(() => {
+        return initialInner > 0 ? Math.min(100, Math.max(0, (remainingInner / initialInner) * 100)) : 0;
+      }, [remainingInner, initialInner]);
+
+      const outerPercent = useMemo(() => {
+        return initialOuter > 0 ? Math.min(100, Math.max(0, (remainingOuter / initialOuter) * 100)) : 0;
+      }, [remainingOuter, initialOuter]);
+
+      const displayReasons = useMemo(() => {
+        const custom = Object.keys(defectDetails).filter(k => !INITIAL_DEFECT_REASONS.includes(k) && k !== '其他');
+        return [...INITIAL_DEFECT_REASONS.filter(r => r !== '其他'), ...custom, '其他'];
+      }, [defectDetails]);
+
+      const shiftInfo = useMemo(() => {
+        const h = currentTime.getHours();
+        if (h >= 8 && h < 16) return { name: '早班 (08:00 - 16:00)', shortName: '早班', icon: 'fa-sun', color: 'text-amber-400', bg: 'bg-amber-500/20', border: 'border-amber-500/30' };
+        if (h >= 16 && h < 24) return { name: '中班 (16:00 - 00:00)', shortName: '中班', icon: 'fa-cloud-moon', color: 'text-indigo-400', bg: 'bg-indigo-500/20', border: 'border-indigo-500/30' };
+        return { name: '夜班 (00:00 - 08:00)', shortName: '夜班', icon: 'fa-moon', color: 'text-blue-400', bg: 'bg-blue-500/20', border: 'border-blue-500/30' };
+      }, [currentTime]);
+
+      const statusDisplay = {
+        running:  { label: '生產中',   icon: 'fa-bolt',                                     theme: 'bg-emerald-500/20 border-emerald-500 text-emerald-400' },
+        setup_lc: { label: '換線調機', icon: 'fa-shuffle fa-spin',                          theme: 'bg-teal-500/20 border-teal-500 text-teal-400' },
+        setup_fb: { label: '正反調機', icon: 'fa-gear fa-spin',                             theme: 'bg-blue-500/20 border-blue-500 text-blue-400' },
+        setup_sb: { label: '側底調機', icon: 'fa-screwdriver-wrench text-xs md:text-sm xl:text-base', theme: 'bg-indigo-500/20 border-indigo-500 text-indigo-400' },
+        error:    { label: '異常暫停', icon: 'fa-triangle-exclamation fa-fade',              theme: 'bg-red-500/20 border-red-500 text-red-400' },
+        idle:     { label: '產線閒置', icon: 'fa-clock',                                     theme: 'bg-slate-600/20 border-slate-500 text-slate-400' }
+      };
+
+      // ★ 是否為「停機類」狀態（非生產），用於稼動率計算分類
+      const isStopStatus = (s) => s !== 'running';
+
+      // --- 核心防呆扣減驗證閥 ---
+      const checkMaterialSufficiency = (qtyNeeded) => {
+        if (remainingInner < qtyNeeded || remainingOuter < qtyNeeded) {
+          showToast(`⚠️ 剩餘可用素材不足（內層剩: ${remainingInner} / 外層剩: ${remainingOuter}），無法登錄 ${qtyNeeded} 個產品！請換批結案或向線長申請發料。`);
+          return false;
+        }
+        return true;
+      };
+
+      // 不良品計數函式 handleDefect
+      const handleDefect = (reason, d) => {
+        if (status === 'error') {
+          showToast('機台異常暫停中，請先排除異常並恢復生產！');
+          return;
+        }
+        // 增量時執行硬防呆驗證
+        if (d > 0) {
+          if (!checkMaterialSufficiency(d)) return;
+        }
+        setDefectDetails(p => ({ ...p, [reason]: Math.max(0, (p[reason] || 0) + d) }));
+      };
+
+      // 重工累加控制函數
+      const handleRework = (location, d) => {
+        if (status === 'error') {
+          showToast('機台異常暫停中，請先排除異常並恢復生產！');
+          return;
+        }
+        setReworkDetails(p => ({ ...p, [location]: Math.max(0, (p[location] || 0) + d) }));
+      };
+
+      // 首件確認提交函式 (FAI)
+      const submitFaiConfirm = () => {
+        if (!faiChecklist.weldCheck || !faiChecklist.sizeCheck || !faiChecklist.feelCheck) {
+          showToast('⚠️ 請先完成所有首件檢驗項目的檢測與勾選！');
+          return;
+        }
+        // 硬防呆驗證
+        if (!checkMaterialSufficiency(1)) return;
+
+        setFaiCount(p => p + 1);
+        setBatchFaiCount(p => p + 1);
+        setCumulativeFaiCount(p => p + 1); // 🌟 跨班總計 +1
+
+        const timestamp = currentTime.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+        const waterTestText = faiChecklist.waterTest === 'pass' ? '，進水測試：✅通過'
+          : faiChecklist.waterTest === 'fail' ? '，進水測試：❌不通過' : '，進水測試：未測試';
+        addLog(`✅ [首件確認] ${shiftInfo.shortName} ${timestamp} 首件確認檢驗合格${waterTestText}。首件樣件已放置至首件專用區，不隨批貨物出庫。`, 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30');
+
+        setFaiChecklist({ weldCheck: false, sizeCheck: false, feelCheck: false, waterTest: '' });
+        setShowFaiModal(false);
+        showToast('首件確認成功！數據已獨立記錄，素材已自動扣除。');
+      };
+
+      // 來料不良增加時，同步寫入跨班累計
+      const handleIncomingDefectChange = (type, val) => {
+        if (type === 'inner') {
+          setIncomingInnerDefect(val);
+          // 累加差值到整批
+          const diff = val - incomingInnerDefect;
+          setCumulativeIncomingInner(p => Math.max(0, p + diff));
+        } else {
+          setIncomingOuterDefect(val);
+          const diff = val - incomingOuterDefect;
+          setCumulativeIncomingOuter(p => Math.max(0, p + diff));
+        }
+      };
+
+      // --- 時鐘定時器 ---
+      useEffect(() => {
+        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+        return () => clearInterval(timer);
+      }, []);
+
+      // --- 載入時讀取作業員名單（Sheets「系統設定」分頁）---
+      const fetchOperatorsList = () => {
+        setOperatorsLoading(true);
+        fetch(`${API_URL}?action=config`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.status === 'ok' && data.operators && data.operators.length > 0) {
+              setOperatorsList(data.operators);
+            }
+            setOperatorsLoading(false);
+          })
+          .catch(() => setOperatorsLoading(false)); // 失敗就維持 FALLBACK_OPERATORS
+      };
+      useEffect(() => { fetchOperatorsList(); }, []);
+
+      // --- 每小時自動送出報工 ---
+      useEffect(() => {
+        if (appScreen !== 'production') return;
+        const check = () => {
+          if (new Date().getMinutes() !== 1) return;
+          const h = new Date().getHours();
+          const period = `${String(h-1<0?23:h-1).padStart(2,'0')}:00-${String(h).padStart(2,'0')}:00`;
+          const pendingNote = pendingCount > 0 ? `【注意：尚有${pendingCount}個待判未處理】` : "";
+          sendToAPI({ type:"weld_report", line:lineInfo.name, assembler:lineInfo.assembler, machineOp:lineInfo.machineOp, inspector:lineInfo.inspector, model:lineInfo.model, color:lineInfo.color||"", batch:lineInfo.batch, input:totalInput, good:goodCount, defect:totalDefect, rework:reworkCount, defectDetails, incomingInnerDefect, incomingOuterDefect, faiCount, note:"每小時自動回報"+pendingNote, period });
+        };
+        const t = setInterval(check, 60000);
+        return () => clearInterval(t);
+      }, [appScreen, lineInfo, goodCount, totalInput, totalDefect, reworkCount, defectDetails, incomingInnerDefect, incomingOuterDefect, faiCount]);
+
+      // --- 核心日誌函數 ---
+      const addLog = (text, customStyle = null) => {
+        const newLog = {
+          id: Date.now(),
+          shift: shiftInfo.shortName,
+          shiftStyle: customStyle || `${shiftInfo.bg} ${shiftInfo.color} ${shiftInfo.border}`,
+          time: currentTime.toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+          operator: lineInfo.machineOp.split(' ')[0], 
+          text: text
+        };
+        setHandoverLogs(prev => [newLog, ...prev]);
+      };
+
+      const handleSaveNote = () => {
+        if (!handoverNote.trim()) return;
+        addLog(handoverNote);
+        setHandoverNote(''); 
+      };
+
+      const handleGood = (d) => {
+        if (status === 'error') {
+          showToast('機台異常暫停中，請先排除異常並恢復生產！');
+          return;
+        }
+        // 增量時執行硬防呆驗證
+        if (d > 0) {
+          if (!checkMaterialSufficiency(d)) return;
+        }
+        setGoodCount(p => Math.max(0, p + d));
+      };
+
+      // ★ 結算目前狀態經過的秒數，累加進 statusDurations，並重置計時起點
+      //   回傳結算後的完整 durations 物件，供呼叫端立即同步使用（state更新是非同步的，不能馬上讀舊的state）
+      const settleCurrentStatusDuration = () => {
+        const now = Date.now();
+        const elapsedSec = Math.round((now - statusStartTime) / 1000);
+        const newDurations = {
+          ...statusDurations,
+          [status]: (statusDurations[status] || 0) + Math.max(0, elapsedSec),
+        };
+        setStatusDurations(newDurations);
+        setStatusStartTime(now);
+        return newDurations; // ★ 同步回傳，呼叫端應該用這個回傳值，不要讀 statusDurations state
+      };
+
+      const handleStatusChange = (newStatus) => {
+        if (newStatus === 'error') {
+          setShowPauseModal(true);
+        } else {
+          const oldLabel = statusDisplay[status].label;
+          const settledDurations = settleCurrentStatusDuration(); // ★ 先結算剛剛那個狀態經過的時間
+          const elapsedSec = settledDurations[status] - (statusDurations[status] || 0); // 本次新增的秒數
+          setStatus(newStatus);
+          setCurrentPauseReason('');
+          if (status !== newStatus) {
+            const minutesText = elapsedSec >= 60 ? `${Math.floor(elapsedSec/60)}分${elapsedSec%60}秒` : `${elapsedSec}秒`;
+            addLog(`🔄 狀態切換：[${oldLabel}] 持續${minutesText} → 轉為 [${statusDisplay[newStatus].label}]`);
+          }
+        }
+      };
+
+      const applyPauseReason = (reason) => {
+        const elapsedSec = settleCurrentStatusDuration(); // ★ 結算上一個狀態的時間
+        setStatus('error');
+        setCurrentPauseReason(reason);
+        setShowPauseModal(false);
+        // 記錄異常暫停原因到清單（之後結報時可彙整呈現）
+        setPauseReasonLog(prev => [...prev, { reason, startTime: Date.now(), endTime: null }]);
+        addLog(`⚠️ 異常停機：${reason}`, 'bg-red-500/20 text-red-400 border-red-500/30');
+      };
+
+      // 🌟 執行下班流程：跨班遞補核心機制
+      const executeHandover = () => {
+        // 🛡️ 防呆：待判未清零不允許結報
+        if (pendingCount > 0) {
+          showToast(`⚠️ 還有 ${pendingCount} 個待判品未處理！`);
+          return;
+        }
+
+        // ★ 先結算目前狀態的計時，確保最後一段時間也被算進去（取得結算後的最終數值）
+        const finalDurations = settleCurrentStatusDuration();
+
+        const batchStatusText = handoverWithBatchClose ? "結報並結批" : "結報";
+        if (!isIdleMode) {
+          sendToAPI({ type:"weld_report", line:lineInfo.name, assembler:lineInfo.assembler, machineOp:lineInfo.machineOp, inspector:lineInfo.inspector, model:lineInfo.model, color:lineInfo.color||"", batch:lineInfo.batch, input:totalInput, good:goodCount, defect:totalDefect, rework:reworkCount, defectDetails, incomingInnerDefect, incomingOuterDefect, faiCount, note:`下班結報(${batchStatusText})`, period:"下班結報" });
+        }
+        addLog(`🚪 [${shiftInfo.shortName}下班${isIdleMode ? '結報(閒置中)' : batchStatusText}] 組裝:${lineInfo.assembler} / 機台:${lineInfo.machineOp} / 檢驗:${lineInfo.inspector}。${isIdleMode ? '本班全程閒置等待批次分配' : `良品:${goodCount}, 製程不良:${totalDefect}, 本班首件:${faiCount}, 內餘:${remainingInner}, 外餘:${remainingOuter}`}`, 'bg-red-950/40 text-red-400 border-red-900/30');
+
+        // ★ 送出本班稼動數據（替代機台稼動程式，暫行方案：作業員自行記錄）
+        //   使用 finalDurations（結算後的同步數值），不要用 statusDurations state（會是舊值）
+        //   閒置模式：idle 狀態累計的秒數歸入「閒置分鐘」，其他正常分類維持原邏輯
+        const tuneSec = (finalDurations.setup_lc||0) + (finalDurations.setup_fb||0) + (finalDurations.setup_sb||0);
+        sendToAPI({
+          type: "machine_log",
+          line: lineInfo.name,
+          activeMinutes: Math.round((finalDurations.running||0) / 60 * 10) / 10,
+          tuneMinutes:   Math.round(tuneSec / 60 * 10) / 10,
+          pauseMinutes:  Math.round((finalDurations.error||0) / 60 * 10) / 10,
+          idleMinutes:   Math.round((finalDurations.idle||0) / 60 * 10) / 10,
+          inputCount:    totalInput,
+          reworkCount:   reworkCount,
+          pauseHistory:  pauseReasonLog,
+          tuneHistory:   [
+            { type: '換線調機', seconds: finalDurations.setup_lc||0 },
+            { type: '正反調機', seconds: finalDurations.setup_fb||0 },
+            { type: '側底調機', seconds: finalDurations.setup_sb||0 },
+          ],
+          note: isIdleMode ? "本班全程閒置等待批次分配" : "作業員端記錄（無網路暫行方案）",
+        });
+
+        // ★ 更新主管分配的批次餘料（累加本班消耗量），讓下一班能看到正確剩餘
+        //   閒置模式下沒有 currentBatchId，這段不會執行
+        if (currentBatchId && !isIdleMode) {
+          // 本班消耗的內外層數量 = 結合數(totalInput) + 來料不良 + 首件消耗 - 發料差異校正(已內含在remaining算法中)
+          // 這裡用「批次原始剩餘 - 本班結算後的remaining」反推本班實際消耗掉的量，最準確
+          const innerConsumed = Math.max(0, initialInner - remainingInner);
+          const outerConsumed = Math.max(0, initialOuter - remainingOuter);
+          sendToAPI({
+            type: "batch_deduct",
+            batchId: currentBatchId,
+            innerDeductDelta: innerConsumed,
+            outerDeductDelta: outerConsumed,
+            completedDelta: goodCount,
+          });
+
+          if (handoverWithBatchClose) {
+            // ★ 結批時改用一般 fetch（非 no-cors）以讀取回應，確認是否有自動接續的下一批
+            fetch(API_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type: "batch_close", batchId: currentBatchId, closer: lineInfo.inspector || lineInfo.assembler || '', note: "作業員端結批" }),
+            })
+              .then(res => res.json())
+              .then(result => {
+                if (result.status === 'ok' && result.nextBatch) {
+                  setShowNextBatchConfirm(result.nextBatch); // 跳出確認視窗
+                }
+              })
+              .catch(() => {
+                // CORS或網路問題時，改用 no-cors 確保至少結批動作有送達
+                sendToAPI({ type: "batch_close", batchId: currentBatchId, closer: lineInfo.inspector || lineInfo.assembler || '', note: "作業員端結批(fallback)" });
+              });
+          }
+        }
+
+        // ★ 重置稼動計時（新班次從零開始累計）
+        setStatusDurations({ running: 0, setup_lc: 0, setup_fb: 0, setup_sb: 0, error: 0, idle: 0 });
+        setStatusStartTime(Date.now());
+        setPauseReasonLog([]);
+
+        setGoodCount(0);
+        setReworkDetails({'正面': 0, '背面': 0, '側邊': 0, '底部': 0}); // 重工明細當班清零
+        setDefectDetails({});
+        setPendingDetails({});
+        setFleshyCount(0);
+        setFaiCount(0); 
+        setBatchFaiCount(0); // 當班首件消耗歸零，不重複扣減下一班的 initialMaterial
+        setIncomingInnerDefect(0); // 當班來料不良清零
+        setIncomingOuterDefect(0);
+        setInnerDiff(0);
+        setOuterDiff(0);
+        setStatus('running');
+
+        if (handoverWithBatchClose) {
+          setInitialInner(0);
+          setInitialOuter(0);
+          setCumulativeFaiCount(0);
+          setCumulativeIncomingInner(0);
+          setCumulativeIncomingOuter(0);
+          setLineInfo(prev => ({ ...prev, model: '無', batch: '無', target: 0 }));
+          setCurrentBatch(null);
+          setCurrentBatchId(null);
+        } else {
+          // 🌟 核心防呆連動：將剩下應做的工單目標及物料剩餘素材，安全繼承給下一班
+          setInitialInner(remainingInner);
+          setInitialOuter(remainingOuter);
+          // cumulativeFaiCount 與 cumulativeIncoming 狀態在背景保留，不作重置，供最後整批盤點
+        }
+
+        setShowHandoverModal(false);
+        setNextShiftStaff({ assembler: '', machineOp: '', inspector: '' });
+        // 🌟 結算完成 → 回到「開班批次確認」畫面（而非完全重新登入），下一班只需確認人員 + 批次資訊
+        setShowLoginModal(true);
+      };
+
+      // 執行接班人員登入 → 登入後一律進入換批設定畫面
+      const executeShiftLogin = () => {
+        if (!lineInfo.name) {
+          showToast('請先選擇今天的生產線別！');
+          return;
+        }
+        if (!nextShiftStaff.assembler && !nextShiftStaff.machineOp && !nextShiftStaff.inspector) {
+          showToast('請至少選擇一位接班人員！');
+          return;
+        }
+        const finalAssembler = nextShiftStaff.assembler || '無';
+        const finalMachineOp = nextShiftStaff.machineOp || '無';
+        const finalInspector = nextShiftStaff.inspector || '無';
+
+        setLineInfo(prev => ({
+          ...prev,
+          assembler: finalAssembler,
+          machineOp: finalMachineOp,
+          inspector: finalInspector
+        }));
+        addLog(`🆕 接班登入：組裝:${finalAssembler} / 機台:${finalMachineOp} / 檢驗:${finalInspector}`, 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30');
+        setShowLoginModal(false);
+        setHandoverWithBatchClose(false);
+        setAppScreen('batch');
+        fetchCurrentBatch(); // 🌟 登入後自動查詢這條線目前的批次（主管分配）
+      };
+
+      // ★ 查詢這條線目前進行中的批次（主管在後台分配的）
+      const fetchCurrentBatch = () => {
+        setBatchLoading(true);
+        fetch(`${API_URL}?action=batch_current&line=${encodeURIComponent(lineInfo.name)}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.status === 'ok' && data.hasBatch) {
+              setCurrentBatch(data.batch);
+              setCurrentBatchId(data.batch.batchId);
+            } else {
+              setCurrentBatch(null);
+              setCurrentBatchId(null);
+            }
+            setBatchLoading(false);
+          })
+          .catch(() => { setBatchLoading(false); setCurrentBatch(null); });
+      };
+
+      // ★ 從主管分配的批次開始生產（取代原本手動選型號/顏色/發料量）
+      const executeStartFromBatch = () => {
+        if (!currentBatch) { showToast('目前沒有可用批次'); return; }
+        setIsIdleMode(false);
+        setLineInfo(prev => ({
+          ...prev,
+          model: currentBatch.model,
+          color: currentBatch.color,
+          batch: currentBatch.batchNo,
+          target: currentBatch.target,
+        }));
+        setInitialInner(currentBatch.innerRemaining);
+        setInitialOuter(currentBatch.outerRemaining);
+        setGoodCount(0); setDefectDetails({}); setPendingDetails({}); setFleshyCount(0);
+        setReworkDetails({'正面': 0, '背面': 0, '側邊': 0, '底部': 0});
+        setFaiCount(0); setBatchFaiCount(0);
+        setIncomingInnerDefect(0); setIncomingOuterDefect(0);
+        setInnerDiff(0); setOuterDiff(0);
+        setStatus('running');
+        setStatusDurations({ running: 0, setup_lc: 0, setup_fb: 0, setup_sb: 0, error: 0, idle: 0 });
+        setStatusStartTime(Date.now());
+        addLog(`🆕 開始生產（批次延續）：${currentBatch.model}${currentBatch.color}，內層剩餘:${currentBatch.innerRemaining}, 外層剩餘:${currentBatch.outerRemaining}`, 'bg-blue-500/20 text-blue-400 border-blue-500/30');
+        setAppScreen('production');
+      };
+
+      // ★ 進入閒置等待模式：沒有批次可生產，但仍可走完整交接班流程，並記錄閒置時間
+      const executeEnterIdleMode = () => {
+        setIsIdleMode(true);
+        setLineInfo(prev => ({ ...prev, model: '閒置中', color: '', batch: '無', target: 0 }));
+        setInitialInner(0); setInitialOuter(0);
+        setGoodCount(0); setDefectDetails({}); setPendingDetails({}); setFleshyCount(0);
+        setReworkDetails({'正面': 0, '背面': 0, '側邊': 0, '底部': 0});
+        setFaiCount(0); setBatchFaiCount(0);
+        setIncomingInnerDefect(0); setIncomingOuterDefect(0);
+        setInnerDiff(0); setOuterDiff(0);
+        setStatus('idle'); // ★ 用獨立的 idle 狀態計時，跟生產中/調機/暫停完全分開
+        setStatusDurations({ running: 0, setup_lc: 0, setup_fb: 0, setup_sb: 0, error: 0, idle: 0 });
+        setStatusStartTime(Date.now());
+        addLog(`💤 進入閒置等待模式：${lineInfo.name} 目前沒有分配批次`, 'bg-slate-700/40 text-slate-400 border-slate-600/30');
+        setAppScreen('production');
+      };
+
+      const handleResolvePending = (cat, target, reason = null) => {
+        if (pendingDetails[cat] <= 0) return;
+        setPendingDetails(p => ({ ...p, [cat]: p[cat] - 1 }));
+        if (target === 'good') setGoodCount(p => p + 1);
+        else handleDefect(reason, 1);
+      };
+
+      // ★ 送外待判：先計不良（備註標記待判中），同步登記到 Sheets 待判追蹤
+      const executeSendOutPending = () => {
+        const onLineQty = parseInt(sendOutQty) || 0;
+        const sampledQty = parseInt(sendOutSampledQty) || 0;
+        const totalQty = onLineQty + sampledQty;
+
+        if (totalQty <= 0) { showToast('請輸入留在線上數量或領走數量（至少一項要大於0）'); return; }
+        if (sampledQty > 0 && !sendOutSamplerName.trim()) { showToast('已填寫領走數量，請同時填寫領走人姓名'); return; }
+        if (!sendOutReason.trim()) { showToast('請填寫送外原因（如：熔接強度待確認）'); return; }
+
+        // 全部數量先計入不良（用「待判中-送外觀察」當分類，方便之後追蹤校正）
+        handleDefect('待判中-送外觀察', totalQty);
+
+        sendToAPI({
+          type: "pending_register",
+          line: lineInfo.name,
+          model: lineInfo.model,
+          color: lineInfo.color || "",
+          batch: lineInfo.batch,
+          registrant: lineInfo.inspector || lineInfo.assembler || '',
+          qty: totalQty,                     // ★ 總數量 = 線上 + 領走
+          sampledQty,                        // ★ 領走數量（登記當下就填）
+          samplerName: sendOutSamplerName.trim(), // ★ 領走人姓名
+          reason: sendOutReason.trim(),
+          sendOutDate,
+          note: sampledQty > 0
+            ? `已先計入不良，待後製程確認結果（${sendOutSamplerName}已領走${sampledQty}支，線上留${onLineQty}支）`
+            : `已先計入不良，待後製程確認結果`,
+        });
+
+        const logSampleText = sampledQty > 0 ? `，${sendOutSamplerName}領走${sampledQty}支` : '';
+        addLog(`📤 送外待判登記：總計${totalQty} pcs（線上${onLineQty}${logSampleText}），原因：${sendOutReason}，送外日期：${sendOutDate}`, 'bg-purple-950/40 text-purple-400 border-purple-900/30');
+        showToast(`✅ 已登記 ${totalQty} pcs 送外待判，已先計入不良。所有線都能在「待判查詢」追蹤這筆。`);
+        setSendOutQty(''); setSendOutSampledQty(''); setSendOutSamplerName(''); setSendOutReason('');
+        setShowSendOutModal(false);
+      };
+
+      // ★ 查詢全線待判清單
+      const fetchPendingList = (statusFilter) => {
+        setPendingQueryLoading(true);
+        fetch(`${API_URL}?action=pending_list${statusFilter ? '&status='+encodeURIComponent(statusFilter) : ''}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.status === 'ok') setPendingQueryList(data.items || []);
+            setPendingQueryLoading(false);
+          })
+          .catch(() => setPendingQueryLoading(false));
+      };
+
+      // ★ 開始回填某一筆：初始化拆分表單（預設一行，數量帶入剩餘數）
+      const startResolving = (item) => {
+        setResolvingItem(item.pendingId);
+        setPanelResolveGoodQty(String(item.remainingQty));
+        setPanelResolveBadQty('0');
+        setPanelResolveBadReason('');
+        setSampledQtyInput(item.sampledQty || '');
+        setSamplerNameInput(item.samplerName || '');
+      };
+
+      // ★ 登記QC/RD人員抽樣送驗數量與姓名（僅追蹤實物去向，不影響統計計算）
+      const executeMarkSampled = (item) => {
+        const qty = parseInt(sampledQtyInput) || 0;
+        if (qty > 0 && !samplerNameInput.trim()) {
+          showToast('⚠️ 請填寫抽樣人員姓名（誰拿走了這些實驗品）');
+          return;
+        }
+        sendToAPI({ type: "pending_mark_sampled", pendingId: item.pendingId, sampledQty: qty, samplerName: samplerNameInput.trim() });
+        showToast(`✅ 已記錄：${samplerNameInput} 抽樣送驗 ${qty} 支`);
+        setTimeout(() => fetchPendingList(pendingQueryFilter), 800);
+      };
+
+      // ★ 回填結果（兩個數字框：轉良品 / 確定不良）
+      const executeSplitResolve = (item) => {
+        const goodQty = parseInt(panelResolveGoodQty) || 0;
+        const badQty  = parseInt(panelResolveBadQty)  || 0;
+        const total   = goodQty + badQty;
+
+        if (total <= 0)                      { showToast('請填寫轉良品或確定不良的數量'); return; }
+        if (total > item.remainingQty)       { showToast(`⚠️ 合計數量(${total})超過剩餘未結案(${item.remainingQty})`); return; }
+        if (badQty > 0 && !panelResolveBadReason) { showToast('有確定不良數量，請選擇不良原因'); return; }
+
+        const resolutions = [];
+        if (goodQty > 0) resolutions.push({ result: '良品', qty: goodQty });
+        if (badQty  > 0) resolutions.push({ result: panelResolveBadReason, qty: badQty });
+
+        sendToAPI({
+          type: "pending_resolve",
+          pendingId: item.pendingId,
+          resolutions,
+          line: item.line, model: item.model, color: item.color, batch: item.batch,
+          resolver: lineInfo.inspector || lineInfo.assembler || '',
+          note: `回填：轉良品×${goodQty}${badQty > 0 ? `，確定不良×${badQty}(${panelResolveBadReason})` : ''}`,
+        });
+
+        showToast(`✅ 已回填：轉良品 ${goodQty}${badQty > 0 ? `，確定不良 ${badQty}` : ''}`);
+        setResolvingItem(null);
+        setTimeout(() => fetchPendingList(pendingQueryFilter), 800);
+      };
+
+      const saveEditLog = () => {
+        setHandoverLogs(prev => prev.map(l => l.id === editingLogId ? { ...l, text: editingText } : l));
+        setEditingLogId(null); setEditingText('');
+      };
+
+      // ── ★ 下一批自動接續確認畫面（結批後優先顯示，蓋過登入畫面）──────
+      if (showNextBatchConfirm) {
+        const nb = showNextBatchConfirm;
+        return (
+          <div className="h-screen w-screen bg-slate-950 flex items-center justify-center p-6 text-slate-100">
+            <div className="bg-slate-900 border border-amber-500 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden">
+              <div className="bg-amber-600/20 border-b border-amber-500/30 p-6 text-center">
+                <i className="fa-solid fa-forward text-4xl text-amber-400 mb-3 block"></i>
+                <h1 className="text-2xl font-bold text-amber-400">下一批已自動接續</h1>
+                <p className="text-slate-400 text-sm mt-1">本批已結批，系統已自動接上排隊中的下一批，請確認資訊</p>
+              </div>
+              <div className="p-8 space-y-4">
+                <div className="bg-slate-800/50 rounded-2xl p-5 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 text-sm">接續型號</span>
+                    <span className="text-2xl font-bold text-cyan-300">{nb.model}{nb.color}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 text-sm">生產批號</span>
+                    <span className="text-lg font-bold text-amber-300">{nb.batchNo}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 text-sm">內層發料總量</span>
+                    <span className="text-lg font-bold text-cyan-400">{nb.innerTotal} pcs</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 text-sm">外層發料總量</span>
+                    <span className="text-lg font-bold text-amber-400">{nb.outerTotal} pcs</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setShowNextBatchConfirm(null); setShowLoginModal(true); }}
+                  className="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-5 rounded-2xl text-xl border border-amber-400/50 shadow-lg active:scale-95 transition-all flex items-center justify-center gap-3"
+                >
+                  <i className="fa-solid fa-check"></i> 確認，繼續交接流程
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // ── 接班登入全螢幕畫面 ──────────────────────────────────
+      if (appScreen === 'login') {
+        return (
+          <div className="h-screen w-screen bg-slate-950 flex items-center justify-center p-6 text-slate-100">
+            <div className="bg-slate-900 border border-emerald-500 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden">
+              <div className="bg-emerald-600/20 border-b border-emerald-500/30 p-6 text-center">
+                <i className="fa-solid fa-wave-square text-4xl text-emerald-400 mb-3 block"></i>
+                <h1 className="text-3xl font-bold text-emerald-400">熔接線報工系統</h1>
+                <p className="text-slate-400 text-sm mt-1">請選取接班人員後登入</p>
+              </div>
+              <div className="p-8 space-y-5">
+                {/* 線別選擇 */}
+                <div>
+                  <label className="block text-emerald-400 text-xs mb-1.5 ml-1 font-bold tracking-wide">生產線別 ★</label>
+                  <select
+                    value={lineInfo.name}
+                    onChange={e => setLineInfo(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full bg-slate-950 border border-emerald-600 rounded-xl p-4 text-xl font-bold outline-none focus:border-emerald-400 transition-all text-emerald-300"
+                  >
+                    <option value="">-- 請選擇今天的線別 --</option>
+                    {['1號線','2號線','3號線','4號線','5號線','6號線','7號線','8號線'].map(l => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
+                </div>
+                {/* 人員選擇 */}
+                {operatorsLoading && (
+                  <div className="bg-amber-950/30 border border-amber-700/40 rounded-xl p-3 text-amber-300 text-xs flex items-center gap-2">
+                    <i className="fa-solid fa-spinner fa-spin"></i>
+                    正在載入人員名單，請稍候再選擇...
+                    <button onClick={fetchOperatorsList} className="ml-auto text-amber-200 underline">重新載入</button>
+                  </div>
+                )}
+                {!operatorsLoading && operatorsList === FALLBACK_OPERATORS && (
+                  <div className="bg-red-950/30 border border-red-700/40 rounded-xl p-3 text-red-300 text-xs flex items-center gap-2">
+                    <i className="fa-solid fa-triangle-exclamation"></i>
+                    人員名單載入失敗，請檢查網路後重試
+                    <button onClick={fetchOperatorsList} className="ml-auto text-red-200 underline">重試</button>
+                  </div>
+                )}
+                {[
+                  { label: '組裝作業員', key: 'assembler' },
+                  { label: '機台操作員', key: 'machineOp' },
+                  { label: '產品檢驗員 (QC)', key: 'inspector' },
+                ].map(({ label, key }) => (
+                  <div key={key}>
+                    <label className="block text-slate-400 text-xs mb-1.5 ml-1 font-bold">{label}</label>
+                    <select
+                      value={nextShiftStaff[key]}
+                      onChange={e => setNextShiftStaff(prev => ({ ...prev, [key]: e.target.value }))}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-xl font-bold outline-none focus:border-emerald-500 transition-all text-slate-100"
+                    >
+                      <option value="">無 (無此崗位/免填)</option>
+                      {operatorsList.map(name => (
+                        <option key={name} value={name} className="bg-slate-900">{name}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+                <button
+                  onClick={executeShiftLogin}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-5 rounded-2xl text-2xl border border-emerald-400/50 shadow-lg active:scale-95 transition-all flex items-center justify-center gap-3 mt-2"
+                >
+                  <i className="fa-solid fa-circle-user"></i> 確認登入接班
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // ── 換批設定全螢幕畫面 ──────────────────────────────────
+      if (appScreen === 'batch') {
+        return (
+          <div className="h-screen w-screen bg-slate-950 flex items-center justify-center p-4 text-slate-100">
+            <div className="bg-slate-900 border border-blue-500 rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden">
+              <div className="bg-blue-600/20 border-b border-blue-500/30 p-5 flex items-center gap-3">
+                <i className="fa-solid fa-arrows-rotate text-blue-400 text-2xl"></i>
+                <div>
+                  <h2 className="text-2xl font-bold text-blue-400">開班批次確認</h2>
+                  <p className="text-slate-400 text-xs mt-0.5">
+                    人員：{lineInfo.assembler || '無'} / {lineInfo.machineOp || '無'} / {lineInfo.inspector || '無'} ・ {lineInfo.name}
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-5">
+                {batchLoading && (
+                  <div className="text-center py-12 text-slate-500">
+                    <i className="fa-solid fa-spinner fa-spin text-3xl mb-3 block"></i>
+                    正在查詢 {lineInfo.name} 目前批次...
+                  </div>
+                )}
+
+                {!batchLoading && !currentBatch && (
+                  <div className="text-center py-10 space-y-4">
+                    <i className="fa-solid fa-circle-pause text-5xl text-slate-500"></i>
+                    <div className="text-xl font-bold text-slate-300">{lineInfo.name} 目前閒置中</div>
+                    <p className="text-slate-500 text-sm">沒有分配批次（可能排在別條線生產）。可以先進入閒置模式等待，主管分配後按「重新查詢」即可接上。</p>
+                    <div className="flex gap-3 justify-center">
+                      <button onClick={fetchCurrentBatch}
+                        className="bg-slate-700 hover:bg-slate-600 text-white font-bold px-6 py-3 rounded-xl transition-all"
+                      >
+                        <i className="fa-solid fa-rotate-right mr-2"></i>重新查詢
+                      </button>
+                      <button onClick={executeEnterIdleMode}
+                        className="bg-blue-700 hover:bg-blue-600 text-white font-bold px-6 py-3 rounded-xl transition-all"
+                      >
+                        <i className="fa-solid fa-clock mr-2"></i>進入閒置等待模式
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {!batchLoading && currentBatch && (
+                  <>
+                    <div className="bg-slate-800/50 rounded-2xl p-5 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400 text-sm">生產型號</span>
+                        <span className="text-2xl font-bold text-cyan-300">{currentBatch.model}{currentBatch.color}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400 text-sm">生產批號</span>
+                        <span className="text-lg font-bold text-amber-300">{currentBatch.batchNo}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400 text-sm">目標完成數量</span>
+                        <span className="text-lg font-bold text-slate-200">{currentBatch.target} pcs</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400 text-sm">累計已完成</span>
+                        <span className="text-lg font-bold text-emerald-400">{currentBatch.completed} pcs</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-cyan-950/30 border border-cyan-800/40 rounded-2xl p-4 text-center">
+                        <div className="text-cyan-400 text-xs font-bold mb-1">內層剩餘可用</div>
+                        <div className="text-3xl font-mono font-bold text-cyan-300">{currentBatch.innerRemaining}</div>
+                        <div className="text-slate-500 text-xs mt-1">發料總量 {currentBatch.innerTotal}</div>
+                      </div>
+                      <div className="bg-amber-950/30 border border-amber-800/40 rounded-2xl p-4 text-center">
+                        <div className="text-amber-400 text-xs font-bold mb-1">外層剩餘可用</div>
+                        <div className="text-3xl font-mono font-bold text-amber-300">{currentBatch.outerRemaining}</div>
+                        <div className="text-slate-500 text-xs mt-1">發料總量 {currentBatch.outerTotal}</div>
+                      </div>
+                    </div>
+
+                    {(currentBatch.innerRemaining <= 0 || currentBatch.outerRemaining <= 0) && (
+                      <div className="bg-red-950/40 border border-red-700/50 rounded-xl p-3 text-red-400 text-sm font-bold text-center">
+                        <i className="fa-solid fa-circle-exclamation mr-1.5"></i>
+                        此批次餘料已用盡，請聯絡主管結批並分配新批次
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="p-5 border-t border-slate-800 flex gap-3">
+                {goodCount > 0 && (
+                  <button onClick={() => setAppScreen('production')}
+                    className="flex items-center gap-2 px-6 py-5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-2xl text-lg transition-all active:scale-95"
+                  >
+                    <i className="fa-solid fa-arrow-left"></i> 返回
+                  </button>
+                )}
+                <button onClick={executeStartFromBatch}
+                  disabled={!currentBatch || currentBatch.innerRemaining <= 0 || currentBatch.outerRemaining <= 0}
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-bold py-5 rounded-2xl text-2xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-3"
+                >
+                  <i className="fa-solid fa-play"></i> 確認開始生產
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="h-screen w-screen bg-slate-950 font-sans flex flex-col p-3 lg:p-4 overflow-hidden text-slate-100 relative">
+          
+          {/* Header 頂部看板 (🌟 經過優化的 RWD 自適應橫排排版，完美對稱，絕不產生提前換行) */}
+          <header className="flex flex-col lg:flex-row justify-between lg:items-center bg-slate-900 border border-slate-800 p-3 lg:p-4 rounded-2xl shadow-lg shrink-0 mb-3 lg:mb-4 gap-3 overflow-hidden">
+            
+            {/* 左側：班線與人員資訊 */}
+            <div className="flex items-center justify-between lg:justify-start gap-3 lg:gap-4 w-full lg:w-auto min-w-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`p-2 lg:p-3 rounded-xl border-2 transition-all shrink-0 ${statusDisplay[status].theme}`}>
+                  <i className={`fa-solid ${statusDisplay[status].icon} text-lg lg:text-2xl`}></i>
+                </div>
+                <div className="min-w-0">
+                  <h1 className="text-lg lg:text-2xl font-bold tracking-wider flex items-center gap-2 truncate">
+                    {lineInfo.name} <span className="text-slate-500 text-xs lg:text-sm border-l border-slate-700 pl-2">現場報工終端</span>
+                  </h1>
+                  <div className="text-slate-400 text-[10px] lg:text-xs mt-0.5 flex flex-wrap items-center gap-1.5">
+                    <span className={`px-1.5 py-0.5 rounded border text-[9px] lg:text-xs ${shiftInfo.bg} ${shiftInfo.border} ${shiftInfo.color} font-bold whitespace-nowrap`}>{shiftInfo.name}</span>
+                    <div className="flex items-center gap-1 overflow-hidden">
+                      <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[9px] lg:text-xs">組裝:{lineInfo.assembler}</span>
+                      <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[9px] lg:text-xs font-bold">機台:{lineInfo.machineOp}</span>
+                      <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[9px] lg:text-xs">檢驗:{lineInfo.inspector}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 🌟 中間：生產型號與目標控制面板 (依據 image_fedb66 完美修正為極緻橫向單行對齊，融入雙道精緻分隔線) */}
+            <div className="flex flex-row items-center bg-slate-800/50 p-2.5 px-4 rounded-xl border border-slate-700 w-full lg:w-auto shadow-inner gap-4 lg:gap-6 shrink-0 justify-between lg:justify-start">
+              
+              {/* 數據資訊區 */}
+              <div className="flex items-center gap-4 shrink-0">
+                <div className="flex flex-col justify-center">
+                  <span className="text-[8px] lg:text-[9px] text-slate-400 font-bold tracking-wider mb-0.5">生產型號 / 批號</span>
+                  <span className="text-xs lg:text-sm font-bold text-cyan-300 font-mono tracking-tight leading-none">
+                    {lineInfo.model} <span className="text-slate-500 font-sans mx-0.5">/</span> <span className="text-amber-300">{lineInfo.batch}</span>
+                  </span>
+                </div>
+                
+                {/* 第一道分隔線 */}
+                <div className="w-px h-6 bg-slate-700 opacity-50 shrink-0"></div>
+                
+                <div className="flex flex-col justify-center">
+                  <span className="text-[8px] lg:text-[9px] text-slate-400 font-bold tracking-wider mb-0.5">當批剩餘目標</span>
+                  <span className="text-xs lg:text-sm font-bold text-slate-100 font-mono tracking-widest leading-none">{lineInfo.target}</span>
+                </div>
+              </div>
+              
+              {/* 🌟 第二道核心分隔線 */}
+              <div className="w-px h-6 bg-slate-700 opacity-50 shrink-0"></div>
+              
+              {/* 按鈕動作區 */}
+              <div className="flex items-center gap-2 shrink-0">
+                <button 
+                  onClick={() => { setHandoverWithBatchClose(true); setShowHandoverModal(true); }}
+                  className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] lg:text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow active:scale-95 flex items-center gap-1.5 border border-blue-400/30 whitespace-nowrap"
+                >
+                  <i className="fa-solid fa-flag-checkered"></i> 提早結批
+                </button>
+                <button 
+                  onClick={() => setShowFaiModal(true)}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] lg:text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow active:scale-95 flex items-center gap-1.5 border border-emerald-400/30 whitespace-nowrap"
+                >
+                  <i className="fa-solid fa-shield-halved"></i> 首件確認
+                </button>
+                <button
+                  onClick={() => { sendToAPI({ type:"weld_report", line:lineInfo.name, assembler:lineInfo.assembler, machineOp:lineInfo.machineOp, inspector:lineInfo.inspector, model:lineInfo.model, color:lineInfo.color||"", batch:lineInfo.batch, input:totalInput, good:goodCount, defect:totalDefect, rework:reworkCount, defectDetails, incomingInnerDefect, incomingOuterDefect, faiCount, note:"手動即時送出", period:getCurrentPeriod() }); showToast('✅ 即時數據已送出！'); }}
+                  className="bg-cyan-700 hover:bg-cyan-600 text-white text-[10px] lg:text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow active:scale-95 flex items-center gap-1.5 border border-cyan-400/30 whitespace-nowrap"
+                >
+                  <i className="fa-solid fa-cloud-arrow-up"></i> 即時送出
+                </button>
+              </div>
+            </div>
+            
+            {/* 右側：下班按鍵與時間 */}
+            <div className="flex items-center justify-between lg:justify-end gap-3 w-full lg:w-auto ml-0 lg:ml-auto">
+              <button 
+                onClick={() => setShowHandoverModal(true)}
+                className="bg-red-600 hover:bg-red-500 text-white text-xs lg:text-sm font-bold px-4 py-2 rounded-xl transition-all shadow-lg shadow-red-900/10 active:scale-95 flex items-center gap-2 border border-red-500/30 whitespace-nowrap flex-1 lg:flex-none justify-center"
+              >
+                <i className="fa-solid fa-right-from-bracket"></i> 下班交班
+              </button>
+              <div className="flex items-center justify-center gap-2 bg-slate-800 px-4 py-2 rounded-xl border border-slate-700 shadow-inner shrink-0 w-28 lg:w-32">
+                <span className="text-sm lg:text-lg font-mono font-bold tracking-wider text-center w-full">{currentTime.toLocaleTimeString('zh-TW', { hour12: false })}</span>
+              </div>
+            </div>
+          </header>
+
+          <div className="flex-1 flex gap-3 lg:gap-4 min-h-0">
+            
+            {/* 左側數據區 - 實時顯示內、外層剩餘素材 (與公式扣減同步) */}
+            <div className="w-1/4 flex flex-col gap-2 lg:gap-4 min-h-0">
+              <div className="flex-1 grid grid-cols-2 gap-2 md:gap-3 min-h-0 pb-1">
+                
+                {[
+                  { label: "良品", val: goodCount, color: "text-emerald-400" },
+                  { label: "待判", val: pendingCount, color: "text-yellow-400" },
+                  { label: "製程不良", val: totalDefect, color: "text-red-400" },
+                  { label: "重工", val: reworkCount, color: "text-orange-300" },
+                  { label: "首件確認", val: faiCount, color: "text-cyan-400" },
+                  { label: "內層剩餘素材", val: remainingInner, color: remainingInner <= 10 ? "text-red-400 animate-pulse font-bold" : "text-cyan-300" },
+                  { label: "外層剩餘素材", val: remainingOuter, color: remainingOuter <= 10 ? "text-red-400 animate-pulse font-bold" : "text-amber-300" },
+                  { label: "良率", val: currentYield + "%", color: currentYield >= 98 ? "text-emerald-400" : "text-red-400" },
+                  { label: "即時稼動率", val: liveOEE.rate + "%", color: liveOEE.rate >= 85 ? "text-emerald-400" : "text-orange-400" }
+                ].map((item, idx) => (
+                  <div key={idx} className="bg-slate-900 border border-slate-800 rounded-3xl p-2 md:p-3 flex flex-col items-center justify-center shadow-xl hover:bg-slate-800/50 transition-colors group">
+                    <span className="text-slate-500 text-[10px] md:text-xs xl:text-sm font-bold mb-1 tracking-widest">{item.label}</span>
+                    <span className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl xl:text-5xl font-mono font-bold ${item.color} leading-none whitespace-nowrap`}>
+                      {item.val}
+                    </span>
+                  </div>
+                ))}
+
+              </div>
+            </div>
+
+            {/* 右側按鈕區 - 6欄並列，當素材用盡時，增量按鈕自動防呆鎖定 */}
+            <div className="w-3/4 flex flex-col gap-3 lg:gap-4 min-h-0">
+              <div className="flex-1 grid grid-cols-6 gap-2 lg:gap-3 min-h-0">
+                {/* 第一欄：良品增量 */}
+                <div className="flex flex-col gap-2 h-full">
+                  <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-2 min-h-0">
+                    <button 
+                      onClick={() => handleGood(1)} 
+                      disabled={isMaterialExhausted}
+                      className={`text-white rounded-xl flex flex-col items-center justify-center border shadow-sm transition-all ${
+                        isMaterialExhausted 
+                          ? 'bg-slate-800/50 border-red-500/20 text-slate-500 cursor-not-allowed' 
+                          : 'bg-emerald-600 hover:bg-emerald-500 border-emerald-500/50'
+                      }`}
+                    >
+                      <i className={`fa-solid ${isMaterialExhausted ? 'fa-lock text-red-500/80' : 'fa-check'} text-xl`}></i>
+                      <span className="text-xs font-bold">{isMaterialExhausted ? '已鎖定' : '良品 +1'}</span>
+                    </button>
+                    <button 
+                      onClick={() => { if(!isMaterialExhausted) handleGood(7); }} 
+                      disabled={isMaterialExhausted}
+                      className={`text-white rounded-xl flex flex-col items-center justify-center border shadow-sm transition-all ${
+                        isMaterialExhausted 
+                          ? 'bg-slate-800/50 border-red-500/20 text-slate-500 cursor-not-allowed' 
+                          : 'bg-emerald-600 hover:bg-emerald-500 border-emerald-500/50'
+                      }`}
+                    >
+                      <i className={`fa-solid ${isMaterialExhausted ? 'fa-lock text-red-500/80' : 'fa-check'} text-xl`}></i>
+                      <span className="text-xs font-bold">{isMaterialExhausted ? '已鎖定' : '良品 +7'}</span>
+                    </button>
+                    <button 
+                      onClick={() => { if(!isMaterialExhausted) handleGood(10); }} 
+                      disabled={isMaterialExhausted}
+                      className={`text-white rounded-xl flex flex-col items-center justify-center border shadow-sm transition-all ${
+                        isMaterialExhausted 
+                          ? 'bg-slate-800/50 border-red-500/20 text-slate-500 cursor-not-allowed' 
+                          : 'bg-emerald-600 hover:bg-emerald-500 border-emerald-500/50'
+                      }`}
+                    >
+                      <i className={`fa-solid ${isMaterialExhausted ? 'fa-lock text-red-500/80' : 'fa-check'} text-xl`}></i>
+                      <span className="text-xs font-bold">{isMaterialExhausted ? '已鎖定' : '良品 +10'}</span>
+                    </button>
+                    <button 
+                      onClick={() => { if(!isMaterialExhausted) { handleGood(1); setFleshyCount(p => p+1); } }} 
+                      disabled={isMaterialExhausted}
+                      className={`text-white rounded-xl flex flex-col items-center justify-center border relative overflow-hidden transition-all ${
+                        isMaterialExhausted 
+                          ? 'bg-slate-800/50 border-red-500/20 text-slate-500 cursor-not-allowed' 
+                          : 'bg-emerald-600 hover:bg-emerald-500 border-emerald-500/50'
+                      }`}
+                    >
+                      <i className={`fa-solid ${isMaterialExhausted ? 'fa-lock text-red-500/80' : 'fa-tools'} text-xl`}></i>
+                      <span className="text-sm font-bold">{isMaterialExhausted ? '鎖定' : '多肉 +1'}</span>
+                      {fleshyCount > 0 && <div className="absolute top-0 right-0 bg-amber-500 text-[10px] px-2 py-0.5 rounded-bl font-bold shadow-md">待:{fleshyCount}</div>}
+                    </button>
+                  </div>
+                  {/* 減量按鈕：在任何時候都保持啟用，以便同仁糾錯歸還物料 */}
+                  <button onClick={() => { handleGood(-1); setFleshyCount(p => Math.max(0, p-1)); }} className="h-12 shrink-0 rounded-xl bg-slate-800 text-emerald-500 hover:bg-slate-700 text-sm font-bold flex items-center justify-center gap-1 border border-slate-700 transition-colors active:bg-slate-900 shadow-sm"><i className="fa-solid fa-minus-circle"></i> 誤判-1</button>
+                </div>
+
+                {/* 第二欄：送外待判（取代舊版當班快速待判，改為跨天送外觀察流程） */}
+                <div className="flex flex-col gap-2 h-full">
+                  <button 
+                    onClick={() => {
+                      if (isMaterialExhausted) {
+                        showToast("⚠️ 目前已無剩餘未加工素材，無法新增送外待判！");
+                        return;
+                      }
+                      setShowSendOutModal(true);
+                    }} 
+                    className={`flex-1 rounded-2xl flex flex-col items-center justify-center gap-3 border relative transition-all active:scale-[0.98] shadow-md ${
+                      isMaterialExhausted 
+                        ? 'bg-slate-800/40 border-red-500/20 text-slate-500 cursor-not-allowed' 
+                        : 'bg-yellow-600 hover:bg-yellow-500 text-white border-yellow-500/50'
+                    }`}
+                  >
+                    <i className={`fa-solid ${isMaterialExhausted ? 'fa-lock text-red-500/80' : 'fa-paper-plane'} text-4xl lg:text-5xl`}></i>
+                    <span className="text-2xl font-bold tracking-widest">{isMaterialExhausted ? '已鎖定' : '送外待判'}</span>
+                  </button>
+                  <button onClick={() => { setShowPendingQueryModal(true); fetchPendingList(pendingQueryFilter); }} className="h-12 bg-slate-800 text-cyan-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">
+                    <i className="fa-solid fa-magnifying-glass mr-1.5"></i>待判查詢
+                  </button>
+                </div>
+
+                {/* 第三欄：製程不良品 (防呆鎖定) */}
+                <div className="flex flex-col gap-2 h-full">
+                  <button 
+                    onClick={() => {
+                      if (isMaterialExhausted) {
+                        showToast("⚠️ 目前已無剩餘未加工素材，無法新增不良品！");
+                        return;
+                      }
+                      setShowDefectModal(true);
+                    }} 
+                    className={`flex-1 rounded-2xl flex flex-col items-center justify-center gap-2 border transition-all active:scale-[0.98] shadow-md ${
+                      isMaterialExhausted 
+                        ? 'bg-slate-800/40 border-red-500/20 text-slate-500 cursor-not-allowed' 
+                        : 'bg-red-600 hover:bg-red-500 text-white border-red-500/50'
+                    }`}
+                  >
+                    <i className={`fa-solid ${isMaterialExhausted ? 'fa-lock text-red-500/80' : 'fa-xmark'} text-4xl lg:text-5xl`}></i>
+                    <span className="text-2xl font-bold tracking-widest">{isMaterialExhausted ? '已鎖定' : '不良品'}</span>
+                  </button>
+                  <button onClick={() => setShowDefectModal(true)} className="h-12 bg-slate-800 text-red-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">管理明細</button>
+                </div>
+
+                {/* 第四欄：重工 */}
+                <div className="flex flex-col gap-2 h-full">
+                  <button 
+                    onClick={() => setShowReworkModal(true)} 
+                    className="flex-1 bg-orange-500 hover:bg-orange-400 text-white rounded-2xl flex flex-col items-center justify-center gap-2 border border-orange-400/50 transition-all active:scale-[0.98] shadow-md"
+                  >
+                    <i className="fa-solid fa-rotate text-4xl lg:text-5xl"></i>
+                    <span className="text-2xl font-bold tracking-widest">重工件</span>
+                  </button>
+                  <button onClick={() => setShowReworkModal(true)} className="h-12 bg-slate-800 text-orange-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">管理明細</button>
+                </div>
+
+                {/* 第五欄：物料餘量與自動盤點對帳 */}
+                <div className="flex flex-col gap-2 h-full">
+                  <button onClick={() => setShowMaterialModal(true)} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl flex flex-col items-center justify-center gap-2 border border-blue-500/50 relative transition-all active:scale-[0.98] shadow-md">
+                    <i className="fa-solid fa-boxes-stacked text-4xl lg:text-5xl"></i>
+                    <span className="text-xl font-bold tracking-widest leading-none">物料餘量</span>
+                    <span className="text-[10px] text-blue-200 mt-0.5 leading-none">(自動盤點)</span>
+                    
+                    {/* 頂部餘量閃爍警告 */}
+                    <div className={`text-[10px] lg:text-xs mt-1.5 px-2 py-0.5 rounded border font-semibold ${
+                      isMaterialExhausted 
+                        ? 'bg-red-500/20 text-red-400 border-red-500/30 animate-pulse' 
+                        : 'bg-blue-900/40 text-blue-200 border-blue-400/30'
+                    }`}>
+                      {isMaterialExhausted ? (
+                        <span>⚠️ 料已用盡，請結批</span>
+                      ) : (
+                        <span>內餘:{remainingInner} / 外餘:{remainingOuter}</span>
+                      )}
+                    </div>
+                  </button>
+                  <button onClick={() => setShowMaterialModal(true)} className="h-12 bg-slate-800 text-blue-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">對帳審計表</button>
+                </div>
+
+                {/* 第六欄：來料不良登記 */}
+                <div className="flex flex-col gap-2 h-full">
+                  <button onClick={() => setShowIncomingDefectModal(true)} className="flex-1 bg-pink-600 hover:bg-pink-500 text-white rounded-2xl flex flex-col items-center justify-center gap-2 border border-pink-500/50 relative transition-all active:scale-[0.98] shadow-md">
+                    <i className="fa-solid fa-boxes-packing text-4xl lg:text-5xl"></i>
+                    <span className="text-2xl font-bold tracking-widest">來料不良</span>
+                    
+                    <div className="text-[10px] lg:text-xs mt-1.5 px-2 py-0.5 rounded border font-semibold bg-pink-900/40 text-pink-200 border-pink-400/30">
+                      <span>內:{incomingInnerDefect} / 外:{incomingOuterDefect}</span>
+                    </div>
+                  </button>
+                  <button onClick={() => setShowIncomingDefectModal(true)} className="h-12 bg-slate-800 text-pink-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">來料明細</button>
+                  <button onClick={() => { setTempInnerDiff(''); setTempOuterDiff(''); setShowMaterialDiffModal(true); }} className="h-12 px-3 bg-orange-950/60 hover:bg-orange-900/60 text-orange-400 text-sm font-bold rounded-xl border border-orange-800/40 transition-colors whitespace-nowrap flex items-center gap-1.5">
+                    <i className="fa-solid fa-scale-unbalanced text-xs"></i>發料差異
+                    {(innerDiff !== 0 || outerDiff !== 0) && <span className="text-[10px] bg-orange-500 text-white rounded-full px-1.5 py-0.5">!</span>}
+                  </button>
+                </div>
+              </div>
+
+              {/* 下方：狀態切換區（無網路暫行方案：作業員自行記錄調機/停機時段）*/}
+              {isIdleMode ? (
+                <div className="h-16 lg:h-20 bg-slate-900 border border-slate-700 rounded-2xl p-2 flex items-center justify-center gap-3 shadow-lg shrink-0">
+                  <i className="fa-solid fa-clock text-slate-400 text-xl"></i>
+                  <span className="text-slate-400 font-bold">產線閒置中，等待主管分配批次</span>
+                  <button onClick={fetchCurrentBatch}
+                    className="ml-2 bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold px-3 py-2 rounded-lg"
+                  >
+                    <i className="fa-solid fa-rotate-right mr-1"></i>查詢是否已分配
+                  </button>
+                </div>
+              ) : (
+                <div className="h-16 lg:h-20 bg-slate-900 border border-slate-800 rounded-2xl p-2 flex gap-2 shadow-lg shrink-0">
+                  <button onClick={() => handleStatusChange('running')} className={`flex-1 rounded-xl text-[10px] md:text-sm xl:text-base font-bold border-2 transition-all flex items-center justify-center gap-1.5 ${status === 'running' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}><i className="fa-solid fa-bolt"></i> 生產</button>
+                  <button onClick={() => handleStatusChange('setup_lc')} className={`flex-1 rounded-xl text-[10px] md:text-sm xl:text-base font-bold border-2 transition-all flex items-center justify-center gap-1.5 ${status === 'setup_lc' ? 'bg-teal-500/20 border-teal-500 text-teal-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}><i className="fa-solid fa-shuffle"></i> 換線調機</button>
+                  <button onClick={() => handleStatusChange('setup_fb')} className={`flex-1 rounded-xl text-[10px] md:text-sm xl:text-base font-bold border-2 transition-all flex items-center justify-center gap-1.5 ${status === 'setup_fb' ? 'bg-blue-500/20 border-blue-500 text-blue-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}><i className="fa-solid fa-gear"></i> 正反調機</button>
+                  <button onClick={() => handleStatusChange('setup_sb')} className={`flex-1 rounded-xl text-[10px] md:text-sm xl:text-base font-bold border-2 transition-all flex items-center justify-center gap-1.5 ${status === 'setup_sb' ? 'bg-indigo-500/20 border-indigo-500 text-indigo-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}><i className="fa-solid fa-screwdriver-wrench"></i> 側底調機</button>
+                  <button onClick={() => handleStatusChange('error')} className={`flex-1 rounded-xl text-[10px] md:text-sm xl:text-base font-bold border-2 transition-all flex items-center justify-center gap-1.5 ${status === 'error' ? 'bg-red-500/20 border-red-500 text-red-400' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}><i className="fa-solid fa-pause"></i> 異常暫停</button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 生產交接記錄板 */}
+          <div className="h-32 lg:h-44 bg-slate-900 border border-slate-800 rounded-2xl p-2 lg:p-3 flex gap-2 lg:gap-3 shadow-lg shrink-0 mt-3 lg:mt-4 overflow-hidden">
+            <div className="flex-[3] flex flex-col bg-slate-950/50 border border-slate-700/80 rounded-xl overflow-hidden">
+              <div className="bg-slate-800/80 px-3 py-1.5 border-b border-slate-700/50 flex items-center justify-between shrink-0"><span className="text-slate-300 font-bold text-xs"><i className="fa-solid fa-clipboard-check text-emerald-400 mr-2"></i>生產交接記錄板</span></div>
+              <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-2 no-scrollbar">
+                {handoverLogs.map(log => (
+                  <div key={log.id} className="bg-slate-800/40 rounded-lg p-2 border border-slate-700/50 flex gap-3 items-start shrink-0 hover:bg-slate-800/60 transition-colors">
+                    <div className="flex flex-col items-center shrink-0 w-12"><span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${log.shiftStyle} whitespace-nowrap`}>{log.shift}</span><span className="text-slate-500 text-[9px] mt-1 font-mono">{log.time}</span></div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-center mb-0.5"><div className="text-cyan-400 text-[10px] font-bold">{log.operator}</div>{log.operator === lineInfo.machineOp.split(' ')[0] && editingLogId !== log.id && (<button onClick={() => { setEditingLogId(log.id); setEditingText(log.text); }} className="text-slate-500 hover:text-blue-400 text-[10px] flex items-center gap-1"><i className="fa-solid fa-pen"></i>編輯</button>)}</div>
+                      {editingLogId === log.id ? (<div className="flex flex-col gap-2 mt-1"><textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} className="w-full bg-slate-900 border border-blue-500/50 rounded-lg p-2 text-slate-200 text-xs resize-none" rows="1"></textarea><button onClick={saveEditLog} className="bg-blue-600 px-2 py-0.5 rounded text-[10px]">儲存</button></div>) : <div className="text-slate-200 text-xs leading-snug break-words">{log.text}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex-[2] flex gap-2">
+              <textarea value={handoverNote} onChange={(e) => setHandoverNote(e.target.value)} placeholder="手動輸入交接事項..." className="flex-1 bg-slate-950/50 border border-slate-700 rounded-xl p-3 text-slate-200 text-sm focus:outline-none focus:border-blue-500 placeholder-slate-600 resize-none shadow-inner"></textarea>
+              <button onClick={handleSaveNote} disabled={!handoverNote.trim()} className={`w-20 rounded-xl flex flex-col items-center justify-center gap-2 border shrink-0 transition-all ${handoverNote.trim() ? 'bg-blue-600 hover:bg-blue-500 text-white border-blue-500/50 shadow-lg active:scale-95' : 'bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed'}`}><i className="fa-solid fa-paper-plane text-xl"></i><span className="font-bold text-xs">送出</span></button>
+            </div>
+          </div>
+
+          {/* --- MODALS --- */}
+
+          {/* 🌟 A. 下班交班數據確認 */}
+          {showHandoverModal && (
+            <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-[110] p-6 text-center">
+              <div className="bg-slate-900 border border-red-500 rounded-3xl w-full max-w-2xl flex flex-col animate-[bounce_0.2s_ease-out] shadow-2xl overflow-hidden">
+                <div className="bg-red-600/20 border-b border-red-500/30 p-5 flex justify-between items-center shrink-0">
+                  <h3 className="text-2xl font-bold text-red-400 flex items-center gap-3"><i className="fa-solid fa-right-from-bracket"></i> 下班交班數據確認</h3>
+                  <button onClick={() => setShowHandoverModal(false)} className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm font-bold px-3 py-2 rounded-xl hover:bg-slate-800 transition-all"><i className="fa-solid fa-arrow-left"></i> 返回</button>
+                </div>
+                <div className="p-8 space-y-6 text-left">
+                  <div className="bg-red-500/10 p-4 rounded-xl border border-red-500/20 text-center">
+                    <p className="text-slate-300 font-bold text-base">即將結束本班次工作，請核對最終生產、領料與首件數據：</p>
+                  </div>
+                  
+                  {/* 數據總結面板 (2列x5欄 10格戰情網格) */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 bg-slate-950/60 p-5 rounded-2xl border border-slate-800">
+                    <div>
+                      <span className="text-slate-500 text-xs block mb-1">本班良品數</span>
+                      <p className="text-xl font-mono font-bold text-emerald-400">{goodCount}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-xs block mb-1">製程不良數</span>
+                      <p className="text-xl font-mono font-bold text-red-400">{totalDefect}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-xs block mb-1">本班重工數</span>
+                      <p className="text-xl font-mono font-bold text-orange-400">{reworkCount}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-xs block mb-1">本班首件數</span>
+                      <p className="text-xl font-mono font-bold text-cyan-400">{faiCount}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-xs block mb-1">本班良率</span>
+                      <p className="text-xl font-mono font-bold text-emerald-400">{currentYield}%</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 text-xs font-bold block mb-1">內層剩餘料</span>
+                      <p className="text-xl font-mono font-bold text-cyan-400">{remainingInner} <span className="text-[10px] text-slate-500 font-sans">pcs</span></p>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 text-xs font-bold block mb-1">外層剩餘料</span>
+                      <p className="text-xl font-mono font-bold text-amber-400">{remainingOuter} <span className="text-[10px] text-slate-500 font-sans">pcs</span></p>
+                    </div>
+                    <div>
+                      <span className="text-pink-400 text-xs font-bold block mb-1">內層來料不良</span>
+                      <p className="text-xl font-mono font-bold text-pink-400">{incomingInnerDefect} <span className="text-[10px] text-slate-500 font-sans">pcs</span></p>
+                    </div>
+                    <div>
+                      <span className="text-pink-400 text-xs font-bold block mb-1">外層來料不良</span>
+                      <p className="text-xl font-mono font-bold text-pink-400">{incomingOuterDefect} <span className="text-[10px] text-slate-500 font-sans">pcs</span></p>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 text-xs block mb-1">累計待判數</span>
+                      <p className="text-xl font-mono font-bold text-yellow-400">{pendingCount}</p>
+                    </div>
+                  </div>
+
+                  {/* 下班同時結批選項 */}
+                  <div className="flex items-center gap-3 bg-slate-950/60 p-4 rounded-xl border border-slate-800 mt-2">
+                    <input 
+                      type="checkbox" 
+                      id="handoverBatchClose" 
+                      checked={handoverWithBatchClose} 
+                      onChange={(e) => setHandoverWithBatchClose(e.target.checked)} 
+                      className="w-6 h-6 accent-blue-500 rounded cursor-pointer"
+                    />
+                    <label htmlFor="handoverBatchClose" className="text-slate-200 text-base font-bold cursor-pointer select-none">
+                      📦 本批次已生產完畢 (下班同時結批，並要求下一班設定新批次)
+                    </label>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-slate-400 text-xs font-bold"><i className="fa-solid fa-circle-info mr-1"></i> 執行下班後，數據將同步重置歸零，並開啟接班登入畫面。</p>
+                  </div>
+
+                  <div className="flex gap-4">
+                    <button onClick={() => setShowHandoverModal(false)} className="flex-1 py-4 bg-slate-850 hover:bg-slate-800 rounded-xl font-bold text-lg text-slate-300">取消</button>
+                    <button onClick={executeHandover} className="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg active:scale-95 transition-all">確認無誤，送出下班</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 🌟 B. 接班人員登入視窗 */}
+          {showLoginModal && (
+            <div className="fixed inset-0 bg-black/95 backdrop-blur-lg flex items-center justify-center z-[120] p-6 text-center">
+              <div className="bg-slate-900 border border-emerald-500 rounded-3xl w-full max-w-lg flex flex-col animate-[bounce_0.2s_ease-out] shadow-2xl overflow-hidden">
+                <div className="bg-emerald-600/20 border-b border-emerald-500/30 p-5 flex justify-between items-center shrink-0">
+                  <h3 className="text-2xl font-bold text-emerald-400 flex items-center gap-3"><i className="fa-solid fa-user-shield"></i> 新班別接班人員登入</h3>
+                </div>
+                <div className="p-8 space-y-6 text-left">
+                  <div className="bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20 text-center">
+                    <p className="text-slate-300 font-bold text-base">本班數據已重置，請選取下一班接班人員登入（選填）：</p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-slate-400 text-xs mb-1.5 ml-1 font-bold">組裝作業員</label>
+                      <select 
+                        value={nextShiftStaff.assembler} 
+                        onChange={e => setNextShiftStaff({...nextShiftStaff, assembler: e.target.value})} 
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-xl font-bold outline-none focus:border-emerald-500 transition-all text-slate-100"
+                      >
+                        <option value="">無 (無此崗位/免填)</option>
+                        {operatorsList.map(name => (
+                          <option key={name} value={name} className="bg-slate-900 text-slate-100">{name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 text-xs mb-1.5 ml-1 font-bold">機台操作員</label>
+                      <select 
+                        value={nextShiftStaff.machineOp} 
+                        onChange={e => setNextShiftStaff({...nextShiftStaff, machineOp: e.target.value})} 
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-xl font-bold outline-none focus:border-emerald-500 transition-all text-slate-100"
+                      >
+                        <option value="">無 (無此崗位/免填)</option>
+                        {operatorsList.map(name => (
+                          <option key={name} value={name} className="bg-slate-900 text-slate-100">{name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 text-xs mb-1.5 ml-1 font-bold">產品檢驗員 (QC)</label>
+                      <select 
+                        value={nextShiftStaff.inspector} 
+                        onChange={e => setNextShiftStaff({...nextShiftStaff, inspector: e.target.value})} 
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-xl font-bold outline-none focus:border-emerald-500 transition-all text-slate-100"
+                      >
+                        <option value="">無 (無此崗位/免填)</option>
+                        {operatorsList.map(name => (
+                          <option key={name} value={name} className="bg-slate-900 text-slate-100">{name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <button onClick={executeShiftLogin} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-5 rounded-2xl text-2xl border border-emerald-400/50 shadow-lg active:scale-95 transition-all flex items-center justify-center gap-3"><i className="fa-solid fa-circle-user"></i> 確認登入接班</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 1. 更換批次 Modal (🌟 已優化為橫向寬幅雙面板 2 欄版面，杜絕垂直滾動，型號改回自由輸入) */}
+
+
+
+
+          {/* showDefectModal (優化為單畫面無滾動、文字折行不截斷、微型自適應高度、防呆鎖定) */}
+          {showDefectModal && (
+            <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-[130] p-4 text-center">
+              <div className="bg-slate-900 border border-red-500/40 rounded-3xl w-full max-w-5xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-[bounce_0.2s_ease-out]">
+                <div className="bg-red-600/15 border-b border-red-500/20 p-4 flex justify-between items-center shrink-0">
+                  <div className="flex items-center gap-4 text-left">
+                    <h3 className="text-xl md:text-2xl font-bold text-red-400 flex items-center gap-2">
+                      <i className="fa-solid fa-xmark"></i> 不良品明細
+                    </h3>
+                    <span className="bg-red-500/20 border border-red-500/40 text-red-300 px-3 py-1 rounded-lg text-sm md:text-base font-bold font-mono">
+                      總不良: {totalDefect}
+                    </span>
+                  </div>
+                  <button onClick={() => setShowDefectModal(false)} className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm font-bold px-3 py-2 rounded-xl hover:bg-slate-800 transition-all"><i className="fa-solid fa-arrow-left"></i> 返回</button>
+                </div>
+
+                {fleshyCount > 0 && (
+                  <div className="bg-amber-950/40 px-4 py-2 border-b border-amber-700/20 flex justify-between items-center shrink-0 text-xs md:text-sm">
+                    <span className="font-bold text-amber-400 flex items-center gap-1.5">
+                      <i className="fa-solid fa-tools"></i> 待後加工多肉數: {fleshyCount}
+                    </span>
+                    <div className="flex gap-2">
+                      <button onClick={() => { if(fleshyCount > 0) setFleshyCount(p => p - 1); }} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded-lg font-bold text-xs shadow-sm">
+                        加工成功
+                      </button>
+                      <button onClick={() => { if(fleshyCount > 0 && goodCount > 0) { setGoodCount(p => p - 1); setFleshyCount(p => p - 1); handleDefect('多肉加工報廢', 1); } }} className="bg-orange-500 hover:bg-orange-400 text-white px-3 py-1 rounded-lg font-bold text-xs shadow-sm">
+                        轉不良 (扣良品)
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex-1 overflow-y-auto p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 bg-slate-950/30 no-scrollbar text-left">
+                  {displayReasons.map(reason => {
+                    if (reason === '開機不良') return null;
+                    if (reason === '其他') {
+                      return (
+                        <div key="other" className="bg-slate-700 border border-slate-500 rounded-2xl p-4 flex flex-col gap-2 shadow-md">
+                          <span className="text-slate-100 text-xl font-bold text-center h-8">其他原因</span>
+                          <input type="text" value={customReasonInput} onChange={e=>setCustomReasonInput(e.target.value)} placeholder="原因..." className="w-full bg-slate-800 border border-slate-500 rounded-lg p-3 text-slate-100 text-sm focus:outline-none focus:border-red-400" />
+                          <button onClick={()=>{if(customReasonInput.trim()){ handleDefect(customReasonInput.trim(), 1); setCustomReasonInput(''); }}} disabled={!customReasonInput.trim()} className={`w-full h-12 rounded-lg font-bold border transition-colors ${customReasonInput.trim() ? 'bg-blue-600 hover:bg-blue-500 text-white border-blue-400/50' : 'bg-slate-600 text-slate-400 border-slate-500'} flex items-center justify-center gap-2`}><i className="fa-solid fa-plus-circle"></i> 建立項目 +1</button>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={reason} className="bg-slate-800/85 border border-slate-700/60 rounded-xl p-2.5 flex items-center justify-between gap-3 shadow-sm hover:bg-slate-800/100 min-h-[4.5rem]">
+                        <span className="text-slate-200 text-xs md:text-sm font-bold flex-1 leading-tight break-words pr-1" title={reason}>
+                          {reason}
+                        </span>
+                        <div className="flex items-center gap-1 shrink-0 bg-slate-950 p-2 border border-slate-600 shadow-inner">
+                          <button onClick={() => handleDefect(reason, -1)} className="w-8 h-8 rounded bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-100 text-lg font-bold flex items-center justify-center">-</button>
+                          <span className="w-8 text-center text-base font-mono font-bold text-red-400">{defectDetails[reason] || 0}</span>
+                          
+                          {/* 增加硬防呆鎖定 */}
+                          <button 
+                            onClick={() => handleDefect(reason, 1)} 
+                            disabled={isMaterialExhausted}
+                            className={`w-8 h-8 rounded text-lg font-bold flex items-center justify-center ${
+                              isMaterialExhausted ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-500'
+                            }`}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="p-3 border-t border-slate-800 bg-slate-900 flex justify-end shrink-0">
+                  <button onClick={() => setShowDefectModal(false)} className="px-8 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold text-white text-base active:scale-95 transition-all shadow-md">
+                    完成並關閉
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showPauseModal && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-6 text-center">
+              <div className="bg-slate-900 border border-red-500 rounded-3xl w-full max-w-4xl shadow-2xl flex flex-col animate-[bounce_0.2s_ease-out]">
+                <div className="bg-red-600/20 border-b border-red-500/30 p-5 flex justify-between items-center shrink-0">
+                  <div className="flex items-center gap-6 text-left"><h3 className="text-3xl font-bold text-red-400 flex items-center gap-3"><i className="fa-solid fa-pause"></i> 登錄停機原因</h3>
+                  <div className="flex items-center gap-2 bg-slate-800 p-1.5 rounded-xl border border-slate-750 shadow-inner text-slate-100 text-left w-48"><input type="text" value={newPauseInput} onChange={(e) => setNewPauseInput(e.target.value)} placeholder="新原因..." className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm w-48 outline-none focus:border-red-500" /><button onClick={() => {if(newPauseInput.trim()){ setPauseReasons([...pauseReasons, newPauseInput.trim()]); applyPauseReason(newPauseInput.trim()); setNewPauseInput(''); }}} className="bg-red-600 hover:bg-red-500 text-white font-bold px-4 py-1.5 rounded-lg text-sm transition-colors">暫停</button></div></div>
+                  <button onClick={() => setShowPauseModal(false)} className="text-slate-400 p-2 text-4xl">&times;</button>
+                </div>
+                <div className="p-6 grid grid-cols-2 lg:grid-cols-3 gap-4 bg-slate-950/50 rounded-b-3xl no-scrollbar overflow-y-auto max-h-[60vh] text-left">
+                  {pauseReasons.map((reason, idx) => (
+                    <button key={idx} onClick={() => applyPauseReason(reason)} className="bg-slate-700 hover:bg-slate-600 border border-slate-500 rounded-2xl p-6 text-slate-100 text-2xl font-bold transition-all active:scale-95 group shadow-md">{reason}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 🌟 C. 物料與盤點審計 Modal (Live Audit - 唯讀展示防呆，無手動修改按鍵) */}
+          {showMaterialModal && (
+            <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-[110] p-4 text-center">
+              <div className="bg-slate-900 border border-blue-500 rounded-3xl w-full max-w-5xl flex flex-col animate-[bounce_0.2s_ease-out] shadow-2xl overflow-hidden max-h-[95vh]">
+                
+                {/* 彈窗 Header */}
+                <div className="bg-blue-600/20 border-b border-blue-500/30 p-5 flex justify-between items-center shrink-0">
+                  <h3 className="text-2xl font-bold text-blue-400 flex items-center gap-3">
+                    <i className="fa-solid fa-square-poll-vertical"></i> 本批次物料自動盤點 & 審計對帳 (Live Audit)
+                  </h3>
+                  <button onClick={() => setShowMaterialModal(false)} className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm font-bold px-3 py-2 rounded-xl hover:bg-slate-800 transition-all"><i className="fa-solid fa-arrow-left"></i> 返回</button>
+                </div>
+
+                {/* 戰情剩餘可用分析 */}
+                <div className="p-4 bg-slate-950/40 border-b border-slate-800/80 shrink-0">
+                  <div className="grid grid-cols-2 gap-4 bg-slate-950/80 p-3 rounded-2xl border border-slate-800">
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-slate-400 text-xs font-bold block">內層剩餘可用線邊素材 (Unprocessed)</span>
+                        <p className={`text-2xl font-mono font-bold ${remainingInner <= 0 ? 'text-red-500 animate-pulse' : 'text-cyan-400'}`}>
+                          {remainingInner} <span className="text-[10px] font-normal font-sans text-slate-500">pcs</span>
+                        </p>
+                      </div>
+                      {/* 進度條 */}
+                      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden shadow-inner">
+                        <div className={`h-full rounded-full transition-all duration-300 ${
+                          innerPercent <= 0 ? 'bg-red-600' : innerPercent <= 20 ? 'bg-amber-500' : 'bg-cyan-500'
+                        }`} style={{ width: `${innerPercent}%` }}></div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-slate-400 text-xs font-bold block">外層剩餘可用線邊素材 (Unprocessed)</span>
+                        <p className={`text-2xl font-mono font-bold ${remainingOuter <= 0 ? 'text-red-500 animate-pulse' : 'text-amber-400'}`}>
+                          {remainingOuter} <span className="text-[10px] font-normal font-sans text-slate-500">pcs</span>
+                        </p>
+                      </div>
+                      {/* 進度條 */}
+                      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden shadow-inner">
+                        <div className={`h-full rounded-full transition-all duration-300 ${
+                          outerPercent <= 0 ? 'bg-red-600' : outerPercent <= 20 ? 'bg-amber-500' : 'bg-emerald-500'
+                        }`} style={{ width: `${outerPercent}%` }}></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 自動盤點明細表 */}
+                <div className="flex-1 p-6 overflow-y-auto no-scrollbar bg-slate-900/40 text-left space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    
+                    {/* 內層盤點對帳單 */}
+                    <div className="bg-slate-950/60 p-5 rounded-2xl border border-cyan-500/20 shadow-inner space-y-4">
+                      <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                        <span className="text-cyan-400 text-lg font-bold flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-cyan-400"></span> 內層物料對帳明細 (Inner Audit)
+                        </span>
+                        <span className="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded font-bold">✅ 帳目已平衡</span>
+                      </div>
+                      <div className="space-y-2.5 font-mono text-sm text-slate-300">
+                        <div className="flex justify-between py-1 border-b border-slate-800/40"><span>1. 發料總數量</span><span className="text-slate-100 font-bold">{initialInner} pcs</span></div>
+                        <div className="flex justify-between py-1 border-b border-slate-800/40 text-slate-400"><span>2. 已投產結合數 (良+{totalDefect}製程不良+{pendingCount}待判)</span><span className="text-slate-300 font-bold">- {totalInput} pcs</span></div>
+                        <div className="flex justify-between py-1 border-b border-slate-800/40 text-slate-400"><span>3. 內層來料素材不良</span><span className="text-pink-400 font-bold">- {incomingInnerDefect} pcs</span></div>
+                        <div className="flex justify-between py-1 border-b border-slate-800/40 text-slate-400"><span>4. 首件製作消耗 (FAI)</span><span className="text-cyan-300 font-bold">- {batchFaiCount} pcs</span></div>
+                        <div className="flex justify-between py-1.5 bg-slate-900/60 px-3 rounded-xl border border-slate-800 text-cyan-300"><span>剩餘線邊未加工素材 (1-2-3-4)</span><span className="font-bold">{remainingInner} pcs</span></div>
+                      </div>
+                    </div>
+
+                    {/* 外層盤點對帳單 */}
+                    <div className="bg-slate-950/60 p-5 rounded-2xl border border-amber-500/20 shadow-inner space-y-4">
+                      <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                        <span className="text-amber-400 text-lg font-bold flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span> 外層物料對帳明細 (Outer Audit)
+                        </span>
+                        <span className="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded font-bold">✅ 帳目已平衡</span>
+                      </div>
+                      <div className="space-y-2.5 font-mono text-sm text-slate-300">
+                        <div className="flex justify-between py-1 border-b border-slate-800/40"><span>1. 發料總數量</span><span className="text-slate-100 font-bold">{initialOuter} pcs</span></div>
+                        <div className="flex justify-between py-1 border-b border-slate-800/40 text-slate-400"><span>2. 已投產結合數 (良+{totalDefect}製程不良+{pendingCount}待判)</span><span className="text-slate-300 font-bold">- {totalInput} pcs</span></div>
+                        <div className="flex justify-between py-1 border-b border-slate-800/40 text-slate-400"><span>3. 外層來料素材不良</span><span className="text-pink-400 font-bold">- {incomingOuterDefect} pcs</span></div>
+                        <div className="flex justify-between py-1 border-b border-slate-800/40 text-slate-400"><span>4. 首件製作消耗 (FAI)</span><span className="text-cyan-300 font-bold">- {batchFaiCount} pcs</span></div>
+                        <div className="flex justify-between py-1.5 bg-slate-900/60 px-3 rounded-xl border border-slate-800 text-amber-300"><span>剩餘線邊未加工素材 (1-2-3-4)</span><span className="font-bold">{remainingOuter} pcs</span></div>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* 彈窗底部 */}
+                <div className="p-4 bg-slate-900 border-t border-slate-800 shrink-0 flex justify-end">
+                  <button type="button" onClick={() => setShowMaterialModal(false)} className="px-10 py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-base shadow-lg transition-colors">關閉對帳審計表</button>
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          {/* ★ 送外待判登記 Modal */}
+          {showSendOutModal && (
+            <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+              <div className="bg-slate-900 border border-purple-500 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+                <div className="flex justify-between items-center p-5 border-b border-slate-800">
+                  <div>
+                    <h3 className="text-xl font-bold text-purple-400 flex items-center gap-2">
+                      <i className="fa-solid fa-paper-plane"></i> 送外待判登記
+                    </h3>
+                    <p className="text-slate-500 text-xs mt-0.5">全部先計入不良，待確認結果後可在「待判查詢」回填校正</p>
+                  </div>
+                  <button onClick={() => setShowSendOutModal(false)} className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm font-bold px-3 py-2 rounded-xl hover:bg-slate-800 transition-all">
+                    <i className="fa-solid fa-arrow-left"></i> 返回
+                  </button>
+                </div>
+                <div className="p-5 space-y-4">
+                  {/* QC/RD領走數量 + 姓名 */}
+                  <div className="bg-purple-950/20 border border-purple-800/40 rounded-xl p-3.5 space-y-3">
+                    <div className="text-purple-300 text-xs font-bold">QC/RD領走實驗品（選填，若有人現場帶走才填）</div>
+                    <div className="flex gap-2">
+                      <input type="text" value={sendOutSamplerName}
+                        onChange={e => setSendOutSamplerName(e.target.value)}
+                        placeholder="領走人姓名"
+                        className="flex-1 bg-slate-950 border border-purple-700/40 rounded-lg p-2.5 text-sm font-bold text-purple-200 outline-none focus:border-purple-500"
+                      />
+                      <input type="number" value={sendOutSampledQty}
+                        onChange={e => setSendOutSampledQty(e.target.value)}
+                        placeholder="領走數量"
+                        className="w-24 bg-slate-950 border border-purple-700/40 rounded-lg p-2.5 text-sm font-bold text-purple-200 outline-none focus:border-purple-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 留在線上的數量 */}
+                  <div>
+                    <label className="block text-purple-400 text-xs mb-2 font-bold">留在線上待判數量 (pcs)</label>
+                    <input type="number" value={sendOutQty}
+                      onChange={e => setSendOutQty(e.target.value)}
+                      placeholder="0"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-2xl font-mono font-bold text-purple-300 outline-none focus:border-purple-500"
+                    />
+                  </div>
+
+                  {/* 總數量自動顯示 */}
+                  <div className="bg-slate-800/50 rounded-xl p-3 text-center text-sm">
+                    <span className="text-slate-500">本次送外待判總數量：</span>
+                    <span className="text-white font-bold text-lg ml-2">
+                      {(parseInt(sendOutQty)||0) + (parseInt(sendOutSampledQty)||0)} pcs
+                    </span>
+                    <span className="text-slate-500 text-xs ml-2">
+                      （領走 {parseInt(sendOutSampledQty)||0} + 線上 {parseInt(sendOutQty)||0}）
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 text-xs mb-2 font-bold">送外原因</label>
+                    <input type="text" value={sendOutReason}
+                      onChange={e => setSendOutReason(e.target.value)}
+                      placeholder="例：熔接強度待確認"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-base font-bold text-slate-200 outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 text-xs mb-2 font-bold">送外日期</label>
+                    <input type="date" value={sendOutDate}
+                      onChange={e => setSendOutDate(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-base font-bold text-slate-200 outline-none focus:border-purple-500"
+                    />
+                  </div>
+                  <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 text-amber-300 text-xs">
+                    <i className="fa-solid fa-circle-info mr-1.5"></i>
+                    全部數量會立即計入「不良」，分類為「待判中-送外觀察」。等確認結果後，到「待判查詢」找到這筆回填，系統會自動校正良率。
+                  </div>
+                </div>
+                <div className="p-5 border-t border-slate-800">
+                  <button onClick={executeSendOutPending}
+                    className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95"
+                  >
+                    <i className="fa-solid fa-check mr-2"></i>確認送外登記
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ★ 待判查詢 Modal（全線共用） */}
+          {showPendingQueryModal && (
+            <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+              <div className="bg-slate-900 border border-cyan-500 rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+                <div className="flex justify-between items-center p-5 border-b border-slate-800 shrink-0">
+                  <div>
+                    <h3 className="text-xl font-bold text-cyan-400 flex items-center gap-2">
+                      <i className="fa-solid fa-magnifying-glass"></i> 送外待判查詢（全線共用）
+                    </h3>
+                    <p className="text-slate-500 text-xs mt-0.5">可登記QC抽樣送驗數量，回填結果支援拆分（部分良品/部分不良）</p>
+                  </div>
+                  <button onClick={() => setShowPendingQueryModal(false)} className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm font-bold px-3 py-2 rounded-xl hover:bg-slate-800 transition-all">
+                    <i className="fa-solid fa-arrow-left"></i> 返回
+                  </button>
+                </div>
+                <div className="p-4 border-b border-slate-800 flex gap-2 shrink-0">
+                  {['待判中', '部分結案', '已結案', ''].map(s => (
+                    <button key={s||'all'} onClick={() => { setPendingQueryFilter(s); fetchPendingList(s); }}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${pendingQueryFilter===s ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                    >
+                      {s === '' ? '全部' : s}
+                    </button>
+                  ))}
+                  <button onClick={() => fetchPendingList(pendingQueryFilter)} className="ml-auto px-4 py-2 rounded-xl text-sm font-bold bg-slate-800 text-slate-400 hover:bg-slate-700 transition-all">
+                    <i className="fa-solid fa-rotate-right mr-1"></i>刷新
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  {pendingQueryLoading && <div className="text-center text-slate-500 py-8">載入中...</div>}
+                  {!pendingQueryLoading && pendingQueryList.length === 0 && (
+                    <div className="text-center text-slate-500 py-8">沒有符合條件的待判紀錄</div>
+                  )}
+                  {pendingQueryList.map(item => {
+                    const notFullyResolved = item.status === '待判中' || item.status === '部分結案';
+                    return (
+                    <div key={item.pendingId} className={`rounded-xl p-4 border ${notFullyResolved ? 'bg-amber-950/20 border-amber-700/40' : 'bg-slate-800/40 border-slate-700'}`}>
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <span className="text-white font-bold text-lg">{item.line}</span>
+                          <span className="text-slate-400 ml-2">{item.model} {item.color}</span>
+                          <span className="text-slate-500 ml-2 text-sm">{item.batch}</span>
+                        </div>
+                        <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${notFullyResolved ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                          {item.status}
+                        </span>
+                      </div>
+                      <div className="text-sm text-slate-400 grid grid-cols-2 gap-1 mb-2">
+                        <div>總數量：<span className="text-white font-bold">{item.qty} pcs</span></div>
+                        <div>線上待判（可回填）：<span className="text-amber-300 font-bold">{item.remainingQty} pcs</span>
+                          {item.sampledQty > 0 && <span className="text-purple-400 text-xs ml-1">（已領走{item.sampledQty}支不計入）</span>}
+                        </div>
+                        <div>送外日期：<span className="text-white">{item.sendOutDate}</span></div>
+                        <div>登記人：<span className="text-slate-300">{item.registrant}</span></div>
+                        <div className="col-span-2">原因：<span className="text-slate-300">{item.reason}</span></div>
+                        <div className="col-span-2">QC抽樣送驗：<span className="text-purple-300 font-bold">{item.sampledQty || 0} 支</span>{item.samplerName && <span className="text-slate-400"> （{item.samplerName} 拿走）</span>}</div>
+                      </div>
+
+                      {item.result && (
+                        <div className="text-sm text-emerald-400 bg-emerald-950/30 rounded-lg p-2 mt-2">
+                          已回填結果：<span className="font-bold">{item.result}</span>　最後結案人：{item.resolver}
+                        </div>
+                      )}
+
+                      {notFullyResolved && (
+                        resolvingItem === item.pendingId ? (
+                          <div className="mt-3 space-y-3 border-t border-slate-700 pt-3">
+                            {/* QC/RD抽樣送驗登記：姓名 + 數量 */}
+                            <div className="space-y-2">
+                              <div className="text-purple-400 text-xs font-bold">QC/RD抽樣送驗登記（僅追蹤實物去向，不影響統計）</div>
+                              <div className="flex gap-2">
+                                <input type="text" value={samplerNameInput}
+                                  onChange={e => setSamplerNameInput(e.target.value)}
+                                  placeholder="抽樣人員姓名"
+                                  className="flex-1 bg-slate-950 border border-purple-700/40 rounded-lg p-2.5 text-sm font-bold text-purple-300 outline-none"
+                                />
+                                <input type="number" value={sampledQtyInput}
+                                  onChange={e => setSampledQtyInput(e.target.value)}
+                                  placeholder="數量"
+                                  className="w-20 bg-slate-950 border border-purple-700/40 rounded-lg p-2.5 text-sm font-bold text-purple-300 outline-none"
+                                />
+                                <button onClick={() => executeMarkSampled(item)}
+                                  className="bg-purple-800/60 hover:bg-purple-700 text-purple-200 text-xs font-bold px-3 py-2.5 rounded-lg whitespace-nowrap"
+                                >
+                                  登記
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* 拆分回填表單：兩個數字框 */}
+                            <div className="bg-slate-950/50 rounded-xl p-3 space-y-3">
+                              <div className="text-xs text-slate-400 font-bold">
+                                回填判定結果（剩餘 {item.remainingQty} 支）
+                              </div>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="block text-emerald-400 text-xs font-bold mb-1">轉良品</label>
+                                  <input type="number" value={panelResolveGoodQty}
+                                    onChange={e => setPanelResolveGoodQty(e.target.value)}
+                                    className="w-full bg-slate-900 border border-emerald-700/50 rounded-lg p-2.5 text-xl font-mono font-bold text-emerald-300 outline-none text-center"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-red-400 text-xs font-bold mb-1">確定不良</label>
+                                  <input type="number" value={panelResolveBadQty}
+                                    onChange={e => setPanelResolveBadQty(e.target.value)}
+                                    className="w-full bg-slate-900 border border-red-700/50 rounded-lg p-2.5 text-xl font-mono font-bold text-red-300 outline-none text-center"
+                                  />
+                                </div>
+                              </div>
+                              {(parseInt(panelResolveBadQty) > 0) && (
+                                <select value={panelResolveBadReason} onChange={e => setPanelResolveBadReason(e.target.value)}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-xs font-bold outline-none"
+                                >
+                                  <option value="">-- 請選擇不良原因 --</option>
+                                  {INITIAL_DEFECT_REASONS.filter(r => r !== '待判中-送外觀察').map(r => (
+                                    <option key={r} value={r}>{r}</option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+
+                            <button onClick={() => executeSplitResolve(item)}
+                              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-lg text-sm"
+                            >
+                              <i className="fa-solid fa-check mr-1.5"></i>確認送出回填
+                            </button>
+                            <button onClick={() => { setResolvingItem(null); setResolveRows([]); }} className="w-full text-slate-500 text-xs py-1">取消</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => startResolving(item)}
+                            className="mt-2 w-full bg-cyan-700 hover:bg-cyan-600 text-white font-bold py-2.5 rounded-lg text-sm"
+                          >
+                            <i className="fa-solid fa-gavel mr-1.5"></i>回填結果 / 登記抽樣
+                          </button>
+                        )
+                      )}
+                    </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ★ 發料差異登記 Modal (短發/多發) */}
+          {showMaterialDiffModal && (
+            <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+              <div className="bg-slate-900 border border-orange-500 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+                <div className="flex justify-between items-center p-5 border-b border-slate-800">
+                  <div>
+                    <h3 className="text-xl font-bold text-orange-400 flex items-center gap-2">
+                      <i className="fa-solid fa-scale-unbalanced"></i> 發料差異登記
+                    </h3>
+                    <p className="text-slate-500 text-xs mt-0.5">短發填負數（如 -10），多發填正數（如 +5）</p>
+                  </div>
+                  <button onClick={() => setShowMaterialDiffModal(false)} className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm font-bold px-3 py-2 rounded-xl hover:bg-slate-800 transition-all">
+                    <i className="fa-solid fa-arrow-left"></i> 返回
+                  </button>
+                </div>
+                <div className="p-5 space-y-4">
+                  <div>
+                    <label className="block text-cyan-400 text-xs mb-2 font-bold">
+                      內層差異（目前累計：{innerDiff > 0 ? '+'+innerDiff : innerDiff}）
+                    </label>
+                    <input type="number" value={tempInnerDiff}
+                      onChange={e => setTempInnerDiff(e.target.value)}
+                      placeholder="例：-10 短發 / +5 多發"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-2xl font-mono font-bold text-cyan-300 outline-none focus:border-cyan-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-amber-400 text-xs mb-2 font-bold">
+                      外層差異（目前累計：{outerDiff > 0 ? '+'+outerDiff : outerDiff}）
+                    </label>
+                    <input type="number" value={tempOuterDiff}
+                      onChange={e => setTempOuterDiff(e.target.value)}
+                      placeholder="例：-10 短發 / +5 多發"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-2xl font-mono font-bold text-amber-300 outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-slate-500 bg-slate-800/50 rounded-xl p-3">
+                    <div>內層可用預覽：<span className="text-cyan-300 font-bold">{initialInner + innerDiff + (parseInt(tempInnerDiff)||0)} pcs</span></div>
+                    <div>外層可用預覽：<span className="text-amber-300 font-bold">{initialOuter + outerDiff + (parseInt(tempOuterDiff)||0)} pcs</span></div>
+                  </div>
+                </div>
+                <div className="p-5 border-t border-slate-800">
+                  <button
+                    onClick={() => {
+                      const di = parseInt(tempInnerDiff) || 0;
+                      const dout = parseInt(tempOuterDiff) || 0;
+                      if (di === 0 && dout === 0) { showToast('請輸入差異數量'); return; }
+                      setInnerDiff(prev => prev + di);
+                      setOuterDiff(prev => prev + dout);
+                      const innerNote = di !== 0 ? ('內層'+(di > 0 ? '多發+'+di : '短發'+di)) : '';
+                      const outerNote = dout !== 0 ? ('外層'+(dout > 0 ? '多發+'+dout : '短發'+dout)) : '';
+                      addLog('⚖️ 發料差異登記：'+[innerNote, outerNote].filter(Boolean).join('、'), 'bg-orange-950/40 text-orange-400 border-orange-900/30');
+                      setTempInnerDiff('');
+                      setTempOuterDiff('');
+                      setShowMaterialDiffModal(false);
+                      showToast('✅ 發料差異已更新，可用數量已重新計算');
+                    }}
+                    className="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95"
+                  >
+                    <i className="fa-solid fa-check mr-2"></i>確認更新
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 🌟 D. 來料不良登記 Modal */}
+          {showIncomingDefectModal && (
+            <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-[110] p-4 text-center">
+              <div className="bg-slate-900 border border-pink-500 rounded-3xl w-full max-w-5xl flex flex-col animate-[bounce_0.2s_ease-out] shadow-2xl overflow-hidden max-h-[95vh]">
+                
+                {/* 彈窗 Header */}
+                <div className="bg-pink-600/20 border-b border-pink-500/30 p-5 flex justify-between items-center shrink-0">
+                  <h3 className="text-2xl font-bold text-pink-400 flex items-center gap-3">
+                    <i className="fa-solid fa-boxes-packing"></i> 本批來料不良登記 (快速登錄端)
+                  </h3>
+                  <button onClick={() => setShowIncomingDefectModal(false)} className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm font-bold px-3 py-2 rounded-xl hover:bg-slate-800 transition-all"><i className="fa-solid fa-arrow-left"></i> 返回</button>
+                </div>
+
+                {/* 頂部物料可用分析 */}
+                <div className="p-4 bg-slate-950/40 border-b border-slate-800/80 shrink-0">
+                  <div className="grid grid-cols-2 gap-4 bg-slate-950/80 p-3 rounded-2xl border border-slate-800">
+                    {/* 內層剩餘 */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-slate-500 text-xs font-bold block">內層剩餘可用 (Remaining)</span>
+                        <p className={`text-2xl font-mono font-bold ${remainingInner <= 0 ? 'text-red-500 animate-pulse' : 'text-cyan-400'}`}>
+                          {remainingInner} <span className="text-[10px] font-normal font-sans text-slate-500">pcs</span>
+                        </p>
+                      </div>
+                      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden shadow-inner">
+                        <div className={`h-full rounded-full transition-all duration-300 ${
+                          innerPercent <= 0 ? 'bg-red-600' : innerPercent <= 20 ? 'bg-cyan-500' : 'bg-cyan-500'
+                        }`} style={{ width: `${innerPercent}%` }}></div>
+                      </div>
+                      <div className="flex justify-between text-[10px] text-slate-600">
+                        <span>發料總數: {initialInner}</span>
+                        <span>已登記來料不良: {incomingInnerDefect}</span>
+                      </div>
+                    </div>
+
+                    {/* 外層剩餘 */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-slate-500 text-xs font-bold block">外層剩餘可用 (Remaining)</span>
+                        <p className={`text-2xl font-mono font-bold ${remainingOuter <= 0 ? 'text-red-500 animate-pulse' : 'text-amber-400'}`}>
+                          {remainingOuter} <span className="text-[10px] font-normal font-sans text-slate-500">pcs</span>
+                        </p>
+                      </div>
+                      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden shadow-inner">
+                        <div className={`h-full rounded-full transition-all duration-300 ${
+                          outerPercent <= 0 ? 'bg-red-600' : outerPercent <= 20 ? 'bg-amber-500' : 'bg-emerald-500'
+                        }`} style={{ width: `${outerPercent}%` }}></div>
+                      </div>
+                      <div className="flex justify-between text-[10px] text-slate-600">
+                        <span>發料總數: {initialOuter}</span>
+                        <span>已登記來料不良: {incomingOuterDefect}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 左右並列雙欄主操作區 */}
+                <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 p-6 overflow-y-auto no-scrollbar bg-slate-900/40">
+                  
+                  {/* LEFT COLUMN: 內層來料不良登記 */}
+                  <div className="bg-slate-900/60 p-5 rounded-2xl border border-pink-500/20 shadow-inner flex flex-col justify-between space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                        <span className="text-pink-400 text-lg font-bold flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-pink-400 animate-pulse"></span> 內層來料不良數量 (Inner Defect)
+                        </span>
+                        <span className="text-xs text-slate-500 font-bold font-mono">本批累計: {incomingInnerDefect}</span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between bg-slate-950 p-2 px-4 rounded-xl border border-slate-800 shadow-inner">
+                        <span className="text-slate-500 text-xs font-bold">本次增減</span>
+                        <input 
+                          type="number" 
+                          value={incomingInnerDefect === 0 ? '' : incomingInnerDefect} 
+                          onChange={e => handleIncomingDefectChange('inner', parseInt(e.target.value) || 0)}
+                          className="w-28 bg-transparent text-right text-2xl font-mono font-bold text-pink-400 outline-none"
+                          placeholder="0"
+                        />
+                        <button type="button" onClick={() => handleIncomingDefectChange('inner', 0)} className="bg-red-950/40 hover:bg-red-900/40 border border-red-900/30 px-3 py-1 rounded-lg text-xs font-bold text-red-400">重置</button>
+                      </div>
+
+                      {/* 增減大觸控按鍵組 */}
+                      <div className="grid grid-cols-2 gap-3 pt-2">
+                        {/* 左：扣減數量區 */}
+                        <div className="flex flex-col gap-2">
+                          <button type="button" onClick={() => handleIncomingDefectChange('inner', Math.max(0, incomingInnerDefect - 1))} className="h-10 bg-slate-800 hover:bg-red-950/20 rounded-lg text-xs font-bold text-red-300 transition-all active:scale-95 flex items-center justify-center gap-1 border border-slate-700">
+                            - 1
+                          </button>
+                          <button type="button" onClick={() => handleIncomingDefectChange('inner', Math.max(0, incomingInnerDefect - 10))} className="h-10 bg-slate-800 hover:bg-red-950/20 rounded-lg text-xs font-bold text-red-300 transition-all active:scale-95 flex items-center justify-center gap-1 border border-slate-700">
+                            - 10
+                          </button>
+                          <button type="button" onClick={() => handleIncomingDefectChange('inner', Math.max(0, incomingInnerDefect - 50))} className="h-10 bg-slate-800 hover:bg-red-950/30 border border-red-900/30 rounded-lg text-xs font-bold text-red-300 transition-all active:scale-95 flex items-center justify-center gap-1 border border-slate-700">
+                            - 50
+                          </button>
+                        </div>
+                        {/* 右：加量數量區 (防呆上限) */}
+                        <div className="flex flex-col gap-2">
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              if (remainingInner >= 1) handleIncomingDefectChange('inner', incomingInnerDefect + 1);
+                              else showToast('⚠️ 剩餘可用素材不足，無法登記更多來料不良！');
+                            }} 
+                            className="h-10 bg-pink-600/10 hover:bg-pink-600/20 rounded-lg text-xs font-bold text-pink-400 border border-pink-500/20"
+                          >
+                            + 1
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              const targetAdd = Math.min(10, remainingInner);
+                              if (targetAdd > 0) handleIncomingDefectChange('inner', incomingInnerDefect + targetAdd);
+                              else showToast('⚠️ 剩餘可用素材不足，無法登記更多來料不良！');
+                            }} 
+                            className="h-10 bg-pink-600/10 hover:bg-pink-600/20 rounded-lg text-xs font-bold text-pink-400 border border-pink-500/20"
+                          >
+                            + 10
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              const targetAdd = Math.min(50, remainingInner);
+                              if (targetAdd > 0) handleIncomingDefectChange('inner', incomingInnerDefect + targetAdd);
+                              else showToast('⚠️ 剩餘可用素材不足，無法登記更多來料不良！');
+                            }} 
+                            className="h-10 bg-pink-600 hover:bg-pink-500 text-white rounded-lg text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1"
+                          >
+                            + 50
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* RIGHT COLUMN: 外層來料不良登記 */}
+                  <div className="bg-slate-900/60 p-5 rounded-2xl border border-pink-500/20 shadow-inner flex flex-col justify-between space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                        <span className="text-pink-400 text-lg font-bold flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span> 外層來料不良數量 (Outer Defect)
+                        </span>
+                        <span className="text-xs text-slate-500 font-bold font-mono">本批累計: {incomingOuterDefect}</span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between bg-slate-950 p-2 px-4 rounded-xl border border-slate-800 shadow-inner">
+                        <span className="text-slate-500 text-xs font-bold">本次增減</span>
+                        <input 
+                          type="number" 
+                          value={incomingOuterDefect === 0 ? '' : incomingOuterDefect} 
+                          onChange={e => handleIncomingDefectChange('outer', parseInt(e.target.value) || 0)}
+                          className="w-28 bg-transparent text-right text-2xl font-mono font-bold text-pink-400 outline-none pr-3"
+                          placeholder="0"
+                        />
+                        <button type="button" onClick={() => handleIncomingDefectChange('outer', 0)} className="bg-red-950/40 hover:bg-red-900/40 border border-red-900/30 px-4 py-2 rounded-xl text-xs font-bold text-red-400 transition-colors">重置</button>
+                      </div>
+
+                      {/* 增減觸控大按鈕組 */}
+                      <div className="grid grid-cols-2 gap-3 pt-2">
+                        {/* : 扣減 */}
+                        <div className="flex flex-col gap-2">
+                          <button type="button" onClick={() => handleIncomingDefectChange('outer', Math.max(0, incomingOuterDefect - 1))} className="h-10 bg-slate-800 hover:bg-red-950/30 border border-slate-700/80 rounded-lg text-xs font-bold text-red-300 transition-all active:scale-95 flex items-center justify-center gap-1 border border-slate-700">
+                            - 1
+                          </button>
+                          <button type="button" onClick={() => handleIncomingDefectChange('outer', Math.max(0, incomingOuterDefect - 10))} className="h-10 bg-slate-800 hover:bg-red-950/30 border border-slate-700/80 rounded-lg text-xs font-bold text-red-300 transition-all active:scale-95 flex items-center justify-center gap-1 border border-slate-700">
+                            - 10
+                          </button>
+                          <button type="button" onClick={() => handleIncomingDefectChange('outer', Math.max(0, incomingOuterDefect - 50))} className="h-10 bg-slate-800 hover:bg-red-950/40 border border-slate-700/80 rounded-lg text-xs font-bold text-red-300 transition-all active:scale-95 flex items-center justify-center gap-1 border border-slate-700">
+                            - 50
+                          </button>
+                        </div>
+                        {/* 右：累加 (防呆上限) */}
+                        <div className="flex flex-col gap-2">
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              if (remainingOuter >= 1) handleIncomingDefectChange('outer', incomingOuterDefect + 1);
+                              else showToast('⚠️ 剩餘可用素材不足，無法登記更多來料不良！');
+                            }} 
+                            className="h-10 bg-pink-600/10 hover:bg-pink-600/20 rounded-lg text-xs font-bold text-pink-400 border border-pink-500/20"
+                          >
+                            + 1
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              const targetAdd = Math.min(10, remainingOuter);
+                              if (targetAdd > 0) handleIncomingDefectChange('outer', incomingOuterDefect + targetAdd);
+                              else showToast('⚠️ 剩餘可用素材不足，無法登記更多來料不良！');
+                            }} 
+                            className="h-10 bg-pink-600/10 hover:bg-pink-600/20 rounded-lg text-xs font-bold text-pink-400 border border-pink-500/20"
+                          >
+                            + 10
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              const targetAdd = Math.min(50, remainingOuter);
+                              if (targetAdd > 0) handleIncomingDefectChange('outer', incomingOuterDefect + targetAdd);
+                              else showToast('⚠️ 剩餘可用素材不足，無法登記更多來料不良！');
+                            }} 
+                            className="h-10 bg-pink-600 hover:bg-pink-500 text-white rounded-lg text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1"
+                          >
+                            + 50
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* 彈窗底部 */}
+                <div className="p-4 bg-slate-900 border-t border-slate-800 shrink-0 flex gap-4">
+                  <button type="button" onClick={() => setShowIncomingDefectModal(false)} className="flex-1 py-3.5 bg-slate-850 hover:bg-slate-800 rounded-xl font-bold text-base text-slate-300 transition-colors">取消</button>
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      addLog(`📦 [來料不良登記] 當班內層來料不良: ${incomingInnerDefect} pcs / 外層: ${incomingOuterDefect} pcs (整批累計: 內 ${cumulativeIncomingInner} / 外 ${cumulativeIncomingOuter} )`, 'bg-pink-950/40 text-pink-400 border-pink-900/30');
+                      setShowIncomingDefectModal(false);
+                      showToast('來料不良登記成功！已重新計算剩餘可用數量。');
+                    }} 
+                    className="flex-1 bg-pink-600 hover:bg-pink-500 text-white font-bold py-3.5 rounded-xl text-base shadow-lg active:scale-95 transition-all"
+                  >
+                    確認登記並送出
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          {/* 🌟 E. 首件確認 (FAI) Modal (獨立首件數據，增量防呆驗證) */}
+          {showFaiModal && (
+            <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-[140] p-6 text-center">
+              <div className="bg-slate-900 border border-emerald-500 rounded-3xl w-full max-w-xl flex flex-col animate-[bounce_0.2s_ease-out] shadow-2xl overflow-hidden max-h-[95vh]">
+                
+                {/* 彈窗 Header */}
+                <div className="bg-emerald-600/20 border-b border-emerald-500/30 p-5 flex justify-between items-center shrink-0">
+                  <h3 className="text-2xl font-bold text-emerald-400 flex items-center gap-3">
+                    <i className="fa-solid fa-shield-halved"></i> 班前 / 休息後首件確認 (FAI)
+                  </h3>
+                  <button onClick={() => {
+                    setFaiChecklist({ weldCheck: false, sizeCheck: false, feelCheck: false, waterTest: '' });
+                    setShowFaiModal(false);
+                  }} className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm font-bold px-3 py-2 rounded-xl hover:bg-slate-800 transition-all"><i className="fa-solid fa-arrow-left"></i> 返回</button>
+                </div>
+
+                {/* 彈窗 Body */}
+                <div className="p-6 md:p-8 space-y-5 text-left overflow-y-auto no-scrollbar">
+                  <div className="bg-emerald-500/10 p-4 rounded-xl border border-emerald-500/20">
+                    <p className="text-slate-300 text-xs md:text-sm leading-relaxed">
+                      💡 <strong>首件規章：</strong>依據製造標準書規定，每日開班前、休息時間回來重新生產時，皆必須製作並確認「首件」。首件確認合格後將移至實體<strong>「首件專用區」</strong>，不隨批貨物出庫。
+                    </p>
+                  </div>
+
+                  {/* SOP 勾選檢驗項目 */}
+                  <div className="space-y-3 bg-slate-950/60 p-5 rounded-2xl border border-slate-800">
+                    <h4 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-2 border-b border-slate-800 pb-1">
+                      <i className="fa-solid fa-list-check text-emerald-400 mr-2"></i> 首件標準檢驗清單 (Checklist)
+                    </h4>
+                    
+                    <label className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-900/60 transition-colors cursor-pointer group">
+                      <input 
+                        type="checkbox" 
+                        checked={faiChecklist.weldCheck} 
+                        onChange={(e) => setFaiChecklist({...faiChecklist, weldCheck: e.target.checked})}
+                        className="w-5 h-5 accent-emerald-500 rounded cursor-pointer mt-0.5 shrink-0" 
+                      />
+                      <div className="text-xs md:text-sm">
+                        <span className="font-bold text-slate-200 group-hover:text-emerald-400 transition-colors">1. 熔接外觀檢驗良好</span>
+                        <p className="text-slate-500 text-[11px] mt-0.5">無虛焊、過焊、偏位，焊點飽滿對稱。</p>
+                      </div>
+                    </label>
+
+                    <label className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-900/60 transition-colors cursor-pointer group">
+                      <input 
+                        type="checkbox" 
+                        checked={faiChecklist.sizeCheck} 
+                        onChange={(e) => setFaiChecklist({...faiChecklist, sizeCheck: e.target.checked})}
+                        className="w-5 h-5 accent-emerald-500 rounded cursor-pointer mt-0.5 shrink-0" 
+                      />
+                      <div className="text-xs md:text-sm">
+                        <span className="font-bold text-slate-200 group-hover:text-emerald-400 transition-colors">2. 尺寸與間隙量測合格</span>
+                        <p className="text-slate-500 text-[11px] mt-0.5">使用卡尺/塞規量測關鍵合規尺寸符合標準書。</p>
+                      </div>
+                    </label>
+
+                    <label className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-900/60 transition-colors cursor-pointer group">
+                      <input 
+                        type="checkbox" 
+                        checked={faiChecklist.feelCheck} 
+                        onChange={(e) => setFaiChecklist({...faiChecklist, feelCheck: e.target.checked})}
+                        className="w-5 h-5 accent-emerald-500 rounded cursor-pointer mt-0.5 shrink-0" 
+                      />
+                      <div className="text-xs md:text-sm">
+                        <span className="font-bold text-slate-200 group-hover:text-emerald-400 transition-colors">3. 按鈕與對位手感正常</span>
+                        <p className="text-slate-500 text-[11px] mt-0.5">按鈕彈性良好、回彈迅速且相機按鍵手感無偏移。</p>
+                      </div>
+                    </label>
+
+                    <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg hover:bg-slate-900/60 transition-colors">
+                      <div className="text-xs md:text-sm flex-1">
+                        <span className="font-bold text-slate-200">4. 進水測試結果（選填，不影響送出）</span>
+                        <p className="text-slate-500 text-[11px] mt-0.5">依標準書規定進行防水測試，紀錄測試結果。</p>
+                      </div>
+                      <select value={faiChecklist.waterTest}
+                        onChange={(e) => setFaiChecklist({...faiChecklist, waterTest: e.target.value})}
+                        className={`shrink-0 rounded-lg px-3 py-2 text-xs font-bold outline-none border ${
+                          faiChecklist.waterTest === 'pass' ? 'bg-emerald-950/40 border-emerald-600 text-emerald-300' :
+                          faiChecklist.waterTest === 'fail' ? 'bg-red-950/40 border-red-600 text-red-300' :
+                          'bg-slate-900 border-slate-700 text-slate-400'
+                        }`}
+                      >
+                        <option value="">尚未測試</option>
+                        <option value="pass">✅ 通過</option>
+                        <option value="fail">❌ 不通過</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* 盤點提示與公式對齊 */}
+                  <div className="text-xs text-slate-400 leading-normal bg-slate-900/40 p-4 rounded-xl border border-slate-800">
+                    <span className="text-cyan-400 font-bold block mb-1.5"><i className="fa-solid fa-circle-info"></i> 精確對帳盤點模式指引：</span>
+                    送出首件合格後，系統會自動累計「本班首件數 +1」與「本批累計首件數 +1」。
+                    <br />
+                    <span className="text-slate-500 text-[10px] mt-1 block">
+                      ※ <strong>注意：</strong>首件消耗已獨立計帳，此處不會自動累加已領料數量，避免雙重扣減。結批對帳時，請依據公式核對：
+                      <strong className="text-slate-300 block mt-1">發料總數 = 加工良品數 + 不良數 + 待判數 + 本批累計首件數 + 線邊剩餘可用量</strong>
+                    </span>
+                  </div>
+
+                  {/* 按鍵動作區 */}
+                  <div className="flex gap-4 pt-2">
+                    <button 
+                      type="button" 
+                      onClick={() => {
+                        setFaiChecklist({ weldCheck: false, sizeCheck: false, feelCheck: false, waterTest: '' });
+                        setShowFaiModal(false);
+                      }} 
+                      className="flex-1 py-4 bg-slate-850 hover:bg-slate-800 rounded-xl font-bold text-base text-slate-300 transition-colors"
+                    >
+                      取消
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={submitFaiConfirm} 
+                      disabled={!faiChecklist.weldCheck || !faiChecklist.sizeCheck || !faiChecklist.feelCheck || isMaterialExhausted}
+                      className={`flex-1 font-bold py-4 rounded-xl text-base shadow-lg transition-all flex items-center justify-center gap-2 ${
+                        faiChecklist.weldCheck && faiChecklist.sizeCheck && faiChecklist.feelCheck && !isMaterialExhausted
+                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20 active:scale-95' 
+                          : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/60'
+                      }`}
+                    >
+                      <i className="fa-solid fa-circle-check"></i> {isMaterialExhausted ? '素材不足已鎖定' : '確認首件合格，送出'}
+                    </button>
+                  </div>
+
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          {/* 🌟 F. 重工明細 Modal */}
+          {showReworkModal && (
+            <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-[130] p-4 text-center">
+              <div className="bg-slate-900 border border-orange-500/40 rounded-3xl w-full max-w-4xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-[bounce_0.2s_ease-out]">
+                <div className="bg-orange-600/15 border-b border-orange-500/20 p-4 flex justify-between items-center shrink-0">
+                  <div className="flex items-center gap-4 text-left">
+                    <h3 className="text-xl md:text-2xl font-bold text-orange-400 flex items-center gap-2">
+                      <i className="fa-solid fa-rotate"></i> 重工明細管理
+                    </h3>
+                    <span className="bg-orange-500/20 border border-orange-500/40 text-orange-300 px-3 py-1 rounded-lg text-sm md:text-base font-bold font-mono">
+                      總重工: {reworkCount}
+                    </span>
+                  </div>
+                  <button onClick={() => setShowReworkModal(false)} className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm font-bold px-3 py-2 rounded-xl hover:bg-slate-800 transition-all"><i className="fa-solid fa-arrow-left"></i> 返回</button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 bg-slate-950/30 no-scrollbar text-left">
+                  {['正面', '背面', '側邊', '底部'].map(location => (
+                    <div key={location} className="bg-slate-800/85 border border-slate-700/60 rounded-2xl p-4 flex flex-col items-center justify-between gap-4 shadow-md transition-colors hover:bg-slate-800/100 min-h-[7rem]">
+                      <span className="text-slate-200 text-lg font-bold flex-1 leading-tight break-words pr-1">
+                        {location}重工
+                      </span>
+                      <div className="flex items-center justify-between w-full bg-slate-950 p-2 rounded-xl border border-slate-600 shadow-inner">
+                        <button onClick={() => handleRework(location, -1)} className="w-10 h-10 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white text-xl font-bold flex items-center justify-center">-</button>
+                        <span className="text-2xl font-mono font-bold text-orange-400 w-12 text-center">{reworkDetails[location] || 0}</span>
+                        <button onClick={() => handleRework(location, 1)} className="w-10 h-10 rounded-lg bg-orange-600 text-white hover:bg-orange-500 text-xl font-bold border border-orange-400/20 shadow flex items-center justify-center">+</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="p-4 border-t border-slate-800 bg-slate-900 flex justify-end shrink-0">
+                  <button onClick={() => setShowReworkModal(false)} className="px-10 py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold text-white text-base active:scale-95 transition-all shadow-md">
+                    完成並關閉
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

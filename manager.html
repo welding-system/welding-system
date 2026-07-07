@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>熔接線 — 批次分配後台</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+  body { font-family: -apple-system, "Noto Sans TC", sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+</style>
+</head>
+<body class="bg-slate-950 text-slate-100">
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo } = React;
+
+// =====================================================
+//  API 設定
+// =====================================================
+const API_URL = "https://script.google.com/macros/s/AKfycbxITB84zMMmsoA85EysG_OnOdW8U7yoCLihJlCE-SRC4FX_9Y1JfOdET7fLp9ga0yUUQw/exec";
+
+const LINES = ['1號線','2號線','3號線','4號線','5號線','6號線','7號線','8號線'];
+
+// ★ 產品線代號前綴（目前固定不變，未來若有新產品線可在此擴充對照）
+const PRODUCT_LINE_PREFIX = "118ARF";
+
+// 顏色代碼對照（與面板共用）
+const COLOR_CODE_MAP = {
+  "4F": "灰", "4E": "黑", "6D": "稜線灰", "6E": "荒徑綠", "6C": "煙嵐紫",
+};
+
+// 不良原因清單（與面板共用，用於待判回填表單）
+const INITIAL_DEFECT_REASONS = [
+  '熔接不良(正)', '熔接不良(反)', '熔接不良(側)', '熔接不良(底)',
+  '損傷', '組裝不良', '機台操作不當', '調機不良',
+  '髒污', '按鈕對位(導盲線偏移)', '相機鍵功能異常', '異色點', '鏟傷多肉', '其他'
+];
+
+// 機型 + 顏色 → 目標產量對照（與面板共用，1.1倍）
+const WELD_MODEL_DATA = {
+  "297": { label: "297 / I 15 Pro",              colors: [{ name: "灰", code: "4F", target: 0   }, { name: "黑", code: "4E", target: 0   }] },
+  "298": { label: "298 / I 15 Promax",           colors: [{ name: "灰", code: "4F", target: 206 }, { name: "黑", code: "4E", target: 449 }] },
+  "325": { label: "325 / I 16",                  colors: [{ name: "灰", code: "4F", target: 200 }, { name: "黑", code: "4E", target: 472 }] },
+  "326": { label: "326 / I 16 Plus",             colors: [{ name: "灰", code: "4F", target: 162 }, { name: "黑", code: "4E", target: 0   }] },
+  "327": { label: "327 / I 16 Pro",              colors: [{ name: "灰", code: "4F", target: 273 }, { name: "黑", code: "4E", target: 307 }] },
+  "328": { label: "328 / I 16 Promax",           colors: [{ name: "灰", code: "4F", target: 216 }, { name: "黑", code: "4E", target: 449 }] },
+  "342": { label: "342 / I 16e",                 colors: [{ name: "灰", code: "4F", target: 282 }, { name: "黑", code: "4E", target: 582 }] },
+  "350": { label: "350 / I 17",                  colors: [{ name: "灰", code: "4F", target: 245 }, { name: "黑", code: "4E", target: 267 }] },
+  "351": { label: "351 / I 17 Air",              colors: [{ name: "灰", code: "4F", target: 231 }, { name: "黑", code: "4E", target: 0   }] },
+  "352": { label: "352 / I 17 Pro",              colors: [{ name: "灰", code: "4F", target: 308 }, { name: "黑", code: "4E", target: 522 }] },
+  "353": { label: "353 / I 17 Promax",           colors: [{ name: "灰", code: "4F", target: 185 }, { name: "黑", code: "4E", target: 557 }] },
+  "372": { label: "372 / S26",                   colors: [{ name: "灰", code: "4F", target: 191 }, { name: "黑", code: "4E", target: 353 }] },
+  "374": { label: "374 / S26 Ultra",             colors: [{ name: "灰", code: "4F", target: 229 }, { name: "黑", code: "4E", target: 348 }] },
+  "394": { label: "394 / I 17 Pro · I 18 Pro",  colors: [{ name: "稜線灰", code: "6D", target: 0 }, { name: "荒徑綠", code: "6E", target: 0 }, { name: "煙嵐紫", code: "6C", target: 0 }, { name: "灰", code: "4F", target: 0 }, { name: "黑", code: "4E", target: 0 }] },
+  "395": { label: "395 / I 17 Promax · I 18 Promax", colors: [{ name: "稜線灰", code: "6D", target: 0 }, { name: "荒徑綠", code: "6E", target: 0 }, { name: "煙嵐紫", code: "6C", target: 0 }, { name: "灰", code: "4F", target: 0 }, { name: "黑", code: "4E", target: 0 }] },
+};
+
+function getColorsForModel(modelCode) {
+  return WELD_MODEL_DATA[modelCode]?.colors || [];
+}
+
+async function callAPI(payload) {
+  try {
+    await fetch(API_URL, {
+      method: "POST",
+      mode: "no-cors", // Apps Script 跨域限制，改用 no-cors（無法讀回應內容，但能送出成功）
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return { status: "ok" }; // no-cors 模式下永遠拿不到真正回應，假設送出成功
+  } catch (e) {
+    console.error("API 呼叫失敗:", e);
+    return { status: "error", message: "網路連線失敗，請檢查網路或稍後再試" };
+  }
+}
+
+function Toast({ message, onClose }) {
+  useEffect(() => {
+    if (!message) return;
+    const t = setTimeout(onClose, 4500);
+    return () => clearTimeout(t);
+  }, [message]);
+  if (!message) return null;
+  return (
+    <div className="fixed bottom-6 right-6 max-w-md bg-slate-800 border border-emerald-500 text-emerald-300 px-5 py-3 rounded-xl shadow-2xl z-50 font-bold">
+      {message}
+    </div>
+  );
+}
+
+function App() {
+  const [batches, setBatches] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [submitting, setSubmitting] = useState(false); // 送出中 loading 狀態
+  const [statusFilter, setStatusFilter] = useState('進行中');
+  const [operatorsList, setOperatorsList] = useState([]);
+  const [allBatchesForCards, setAllBatchesForCards] = useState([]); // ★ 線別卡片專用，不受下方篩選器影響，固定抓全部
+
+  useEffect(() => {
+    fetch(`${API_URL}?action=config`)
+      .then(res => res.json())
+      .then(data => { if (data.status === 'ok' && data.operators) setOperatorsList(data.operators); })
+      .catch(() => {});
+  }, []);
+
+  // 新批次表單
+  const [form, setForm] = useState({
+    line: '', modelCode: '', colorCode: '', model: '', color: '',
+    batchNo: '第一批', innerTotal: '', outerTotal: '', target: '', creator: '', note: '',
+  });
+
+  const fetchBatches = (filter) => {
+    setLoading(true);
+    fetch(`${API_URL}?action=batch_all${filter ? '&status='+encodeURIComponent(filter) : ''}`)
+      .then(res => res.json())
+      .then(data => { if (data.status === 'ok') setBatches(data.batches || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  };
+
+  // ★ 給線別卡片用的，固定抓全部狀態（不分篩選），確保「排隊中」也能顯示在卡片上
+  const fetchAllForCards = () => {
+    fetch(`${API_URL}?action=batch_all`)
+      .then(res => res.json())
+      .then(data => { if (data.status === 'ok') setAllBatchesForCards(data.batches || []); })
+      .catch(() => {});
+  };
+
+  useEffect(() => { fetchBatches(statusFilter); fetchAllForCards(); }, [statusFilter]);
+
+  // 哪些線目前有進行中批次（用來顯示「將會排隊」提示，不再擋住分配）
+  const occupiedLines = useMemo(() => {
+    return new Set(allBatchesForCards.filter(b => b.status === '進行中').map(b => b.line));
+  }, [allBatchesForCards]);
+
+  const resetForm = () => setForm({ line: '', modelCode: '', colorCode: '', model: '', color: '', batchNo: '第一批', innerTotal: '', outerTotal: '', target: '', creator: '', note: '' });
+
+  const handleCreate = async () => {
+    // ★ 完整料號 = 產品線前綴 + 型號代碼 + 顏色代碼（例：118ARF2974F）
+    const fullModel = form.modelCode === '__new'
+      ? PRODUCT_LINE_PREFIX + form.model + form.colorCode
+      : PRODUCT_LINE_PREFIX + form.modelCode + form.colorCode;
+    if (!form.line) { setToast('⚠️ 請選擇線別'); return; }
+    if (!(form.modelCode || form.model)) { setToast('⚠️ 請選擇或輸入型號'); return; }
+    if (!form.innerTotal || !form.outerTotal) { setToast('⚠️ 請填寫內外層發料總量'); return; }
+    // ★ 不再擋住已佔用的線別，後端會自動排入隊列，等目前批次結批後自動接續
+
+    const displayColor = form.modelCode === '__new' ? form.color : (COLOR_CODE_MAP[form.colorCode] || form.color);
+
+    setSubmitting(true);
+    const result = await callAPI({
+      type: 'batch_create',
+      line: form.line,
+      model: fullModel,
+      color: displayColor,
+      batchNo: form.batchNo,
+      innerTotal: parseInt(form.innerTotal) || 0,
+      outerTotal: parseInt(form.outerTotal) || 0,
+      target: parseInt(form.target) || 0,
+      creator: form.creator,
+      note: form.note,
+    });
+
+    if (result.status === 'ok') {
+      const assignedLine = form.line, assignedModel = fullModel;
+      setShowCreateModal(false);
+      resetForm();
+      // 等待後端寫入完成後重新抓取清單，並用實際抓到的資料確認是否真的成功
+      // ★ 查全部狀態（不限「進行中」），因為這筆可能是排入隊列（狀態=排隊中）
+      setTimeout(() => {
+        fetch(`${API_URL}?action=batch_all`)
+          .then(res => res.json())
+          .then(data => {
+            setSubmitting(false);
+            const found = (data.batches || []).find(b =>
+              b.line === assignedLine && b.model === assignedModel &&
+              (b.status === '進行中' || b.status === '排隊中')
+            );
+            if (found && found.status === '進行中') {
+              setToast(`✅ 批次建立成功並開始生產：${assignedLine} — ${assignedModel}`);
+            } else if (found && found.status === '排隊中') {
+              setToast(`✅ 批次已排入隊列（第${found.queueOrder}順位）：${assignedLine} — ${assignedModel}，等目前批次結批後自動接續`);
+            } else {
+              setToast(`⚠️ 已送出，但尚未確認成功，請按「刷新」確認 ${assignedLine} 的狀態`);
+            }
+            fetchBatches(statusFilter); fetchAllForCards();
+          })
+          .catch(() => {
+            setSubmitting(false);
+            setToast('⚠️ 已送出，請按「刷新」確認結果');
+            fetchBatches(statusFilter); fetchAllForCards();
+          });
+      }, 1500);
+    } else {
+      setSubmitting(false);
+      setToast('❌ ' + (result.message || '建立失敗'));
+    }
+  };
+
+  const handleClose = async (batch) => {
+    if (!confirm(`確認結批：${batch.line} — ${batch.model}${batch.color}？\n完成數量：${batch.completed} / 目標：${batch.target}`)) return;
+    const result = await callAPI({ type: 'batch_close', batchId: batch.batchId, closer: '主管', note: '後台手動結批' });
+    if (result.status === 'ok') {
+      setToast('✅ 已結批，正在確認...');
+      setTimeout(() => { fetchBatches(statusFilter); fetchAllForCards(); }, 1200);
+    } else {
+      setToast('❌ ' + (result.message || '結批失敗'));
+    }
+  };
+
+  // ★ 刪除批次（需二次確認）
+  const handleDelete = async (batch) => {
+    const confirmed = confirm(
+      `⚠️ 確定要完全刪除這筆批次嗎？此操作無法復原！\n\n` +
+      `線別：${batch.line}\n型號：${batch.model}${batch.color}\n批號：${batch.batchNo}\n` +
+      `完成數量：${batch.completed} / 目標：${batch.target}`
+    );
+    if (!confirmed) return;
+    const result = await callAPI({ type: 'batch_delete', batchId: batch.batchId });
+    if (result.status === 'ok') {
+      setToast('🗑️ 已送出刪除請求，正在確認...');
+      setTimeout(() => { fetchBatches(statusFilter); fetchAllForCards(); }, 1200);
+    } else {
+      setToast('❌ ' + (result.message || '刪除失敗'));
+    }
+  };
+
+  // ★ 編輯批次：開啟編輯 Modal，並把現有資料帶入表單
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState(null); // 正在編輯的批次完整資料 + batchId
+
+  // ★ 批次詳情查看：跨班次彙整總計 + 關聯待判記錄
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [detailData, setDetailData] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailResolveRows, setDetailResolveRows] = useState([]); // 保留（作業員面板還在用同名邏輯）
+  const [detailResolvingPendingId, setDetailResolvingPendingId] = useState(null);
+  // ★ 新版回填：兩個數字框
+  const [resolveGoodQty, setResolveGoodQty] = useState('');
+  const [resolveBadQty, setResolveBadQty] = useState('');
+  const [resolveBadReason, setResolveBadReason] = useState('');
+
+  const openDetailModal = (batch) => {
+    setShowDetailModal(true);
+    setDetailLoading(true);
+    setDetailData(null);
+    fetch(`${API_URL}?action=batch_detail&batchId=${encodeURIComponent(batch.batchId)}`)
+      .then(res => res.json())
+      .then(data => { setDetailData(data); setDetailLoading(false); })
+      .catch(() => setDetailLoading(false));
+  };
+
+  const startDetailResolving = (item) => {
+    setDetailResolvingPendingId(item.pendingId);
+    setResolveGoodQty(String(item.remainingQty)); // 預設全部轉良品
+    setResolveBadQty('0');
+    setResolveBadReason('');
+  };
+
+  const submitDetailResolve = async (item) => {
+    const goodQty = parseInt(resolveGoodQty) || 0;
+    const badQty  = parseInt(resolveBadQty)  || 0;
+    const total   = goodQty + badQty;
+
+    if (total <= 0)                      { setToast('⚠️ 請填寫轉良品或確定不良的數量'); return; }
+    if (total > item.remainingQty)       { setToast(`⚠️ 合計數量(${total})超過剩餘未結案(${item.remainingQty})`); return; }
+    if (badQty > 0 && !resolveBadReason) { setToast('⚠️ 有確定不良數量，請選擇不良原因'); return; }
+
+    const resolutions = [];
+    if (goodQty > 0) resolutions.push({ result: '良品', qty: goodQty });
+    if (badQty  > 0) resolutions.push({ result: resolveBadReason, qty: badQty });
+
+    await callAPI({
+      type: 'pending_resolve',
+      pendingId: item.pendingId,
+      resolutions,
+      resolver: '主管',
+      note: `主管回填：轉良品×${goodQty}${badQty > 0 ? `，確定不良×${badQty}(${resolveBadReason})` : ''}`,
+    });
+    setToast(`✅ 已回填：轉良品 ${goodQty}${badQty > 0 ? `，確定不良 ${badQty}` : ''}`);
+    setDetailResolvingPendingId(null);
+    setTimeout(() => {
+      const currentBatchId = detailData?.batch?.batchId;
+      if (currentBatchId) {
+        fetch(`${API_URL}?action=batch_detail&batchId=${encodeURIComponent(currentBatchId)}`)
+          .then(res => res.json()).then(data => setDetailData(data));
+      }
+    }, 800);
+  };
+
+  const openEditModal = (batch) => {
+    setEditForm({
+      batchId: batch.batchId,
+      line: batch.line,
+      model: batch.model,
+      color: batch.color,
+      batchNo: batch.batchNo,
+      innerTotal: batch.innerTotal,
+      outerTotal: batch.outerTotal,
+      target: batch.target,
+      innerDeducted: batch.innerDeducted, // 顯示用，不可編輯
+      outerDeducted: batch.outerDeducted, // 顯示用，不可編輯
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEditSubmit = async () => {
+    if (!editForm.line) { setToast('⚠️ 線別不可為空'); return; }
+    if (!editForm.model) { setToast('⚠️ 型號不可為空'); return; }
+    if (editForm.innerTotal === '' || editForm.outerTotal === '') { setToast('⚠️ 請填寫發料總量'); return; }
+
+    const result = await callAPI({
+      type: 'batch_edit',
+      batchId: editForm.batchId,
+      line: editForm.line,
+      model: editForm.model,
+      color: editForm.color,
+      batchNo: editForm.batchNo,
+      innerTotal: parseInt(editForm.innerTotal) || 0,
+      outerTotal: parseInt(editForm.outerTotal) || 0,
+      target: parseInt(editForm.target) || 0,
+      editor: '主管',
+    });
+
+    if (result.status === 'ok') {
+      setShowEditModal(false);
+      setToast('✅ 已送出編輯，正在確認...');
+      setTimeout(() => { fetchBatches(statusFilter); fetchAllForCards(); }, 1200);
+    } else {
+      setToast('❌ ' + (result.message || '編輯失敗'));
+    }
+  };
+
+  return (
+    <div className="min-h-screen p-6 lg:p-10">
+      <Toast message={toast} onClose={() => setToast('')} />
+
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-emerald-400 flex items-center gap-3">
+            <i className="fa-solid fa-layer-group"></i> 熔接線批次分配後台
+          </h1>
+          <p className="text-slate-500 text-sm mt-1">分配批次到產線，作業員開班時自動帶入</p>
+        </div>
+        <button onClick={() => setShowCreateModal(true)}
+          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-6 py-3 rounded-xl shadow-lg transition-all active:scale-95 flex items-center gap-2"
+        >
+          <i className="fa-solid fa-plus"></i> 分配新批次
+        </button>
+      </div>
+
+      {/* 線別總覽卡片 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        {LINES.map(line => {
+          const active = allBatchesForCards.find(b => b.line === line && b.status === '進行中');
+          const queueCount = allBatchesForCards.filter(b => b.line === line && b.status === '排隊中').length;
+          return (
+            <div key={line} className={`rounded-2xl p-4 border ${active ? 'bg-emerald-950/30 border-emerald-700/50' : 'bg-slate-900 border-slate-800'}`}>
+              <div className="flex justify-between items-start mb-2">
+                <span className="text-lg font-bold text-white">{line}</span>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-400'}`}>
+                  {active ? '生產中' : '閒置'}
+                </span>
+              </div>
+              {active ? (
+                <div className="text-sm space-y-1">
+                  <div className="text-cyan-300 font-bold">{active.model}{active.color}</div>
+                  <div className="text-slate-400 text-xs">{active.batchNo}</div>
+                  <div className="grid grid-cols-2 gap-1 mt-2 text-xs">
+                    <div className="text-cyan-400">內餘：{active.innerRemaining}</div>
+                    <div className="text-amber-400">外餘：{active.outerRemaining}</div>
+                  </div>
+                  <div className="text-slate-500 text-xs mt-1">完成 {active.completed} / {active.target}</div>
+                </div>
+              ) : (
+                <div className="text-slate-600 text-sm py-2">尚未分配批次</div>
+              )}
+              {queueCount > 0 && (
+                <div className="mt-2 pt-2 border-t border-slate-700/50 text-amber-400 text-xs font-bold">
+                  <i className="fa-solid fa-clock mr-1"></i>排隊中 {queueCount} 筆
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 篩選列 */}
+      <div className="flex gap-2 mb-4">
+        {['進行中', '排隊中', '已結批', ''].map(s => (
+          <button key={s||'all'} onClick={() => setStatusFilter(s)}
+            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${statusFilter===s ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+          >
+            {s === '' ? '全部' : s}
+          </button>
+        ))}
+        <button onClick={() => { fetchBatches(statusFilter); fetchAllForCards(); }} className="ml-auto px-4 py-2 rounded-xl text-sm font-bold bg-slate-800 text-slate-400 hover:bg-slate-700">
+          <i className="fa-solid fa-rotate-right mr-1.5"></i>刷新
+        </button>
+      </div>
+
+      {/* 批次清單表格 */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto no-scrollbar">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-800 text-slate-400">
+              <tr>
+                <th className="p-3 text-left">線別</th>
+                <th className="p-3 text-left">型號</th>
+                <th className="p-3 text-left">批號</th>
+                <th className="p-3 text-right">內層發料/剩餘</th>
+                <th className="p-3 text-right">外層發料/剩餘</th>
+                <th className="p-3 text-right">完成/目標</th>
+                <th className="p-3 text-center">狀態</th>
+                <th className="p-3 text-center">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr><td colSpan="8" className="p-8 text-center text-slate-500">載入中...</td></tr>
+              )}
+              {!loading && batches.length === 0 && (
+                <tr><td colSpan="8" className="p-8 text-center text-slate-500">沒有符合條件的批次</td></tr>
+              )}
+              {batches.map(b => (
+                <tr key={b.batchId} onClick={() => openDetailModal(b)} className="border-t border-slate-800 hover:bg-slate-800/40 cursor-pointer">
+                  <td className="p-3 font-bold text-white">{b.line}</td>
+                  <td className="p-3 text-cyan-300 font-mono">{b.model}{b.color}</td>
+                  <td className="p-3 text-amber-300">{b.batchNo}</td>
+                  <td className="p-3 text-right text-cyan-400">{b.innerTotal} / {b.innerRemaining}</td>
+                  <td className="p-3 text-right text-amber-400">{b.outerTotal} / {b.outerRemaining}</td>
+                  <td className="p-3 text-right text-slate-300">{b.completed} / {b.target}</td>
+                  <td className="p-3 text-center">
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                      b.status==='進行中' ? 'bg-emerald-500/20 text-emerald-400' :
+                      b.status==='排隊中' ? 'bg-amber-500/20 text-amber-400' :
+                      'bg-slate-700 text-slate-400'
+                    }`}>
+                      {b.status}{b.status==='排隊中' && b.queueOrder ? ` #${b.queueOrder}` : ''}
+                    </span>
+                  </td>
+                  <td className="p-3 text-center" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center justify-center gap-1.5">
+                      <button onClick={() => openDetailModal(b)} className="bg-cyan-900/60 hover:bg-cyan-800 text-cyan-300 text-xs font-bold px-3 py-1.5 rounded-lg">
+                        <i className="fa-solid fa-chart-simple"></i> 詳情
+                      </button>
+                      <button onClick={() => openEditModal(b)} className="bg-blue-900/60 hover:bg-blue-800 text-blue-300 text-xs font-bold px-3 py-1.5 rounded-lg">
+                        <i className="fa-solid fa-pen"></i> 編輯
+                      </button>
+                      {b.status === '進行中' && (
+                        <button onClick={() => handleClose(b)} className="bg-amber-900/60 hover:bg-amber-800 text-amber-300 text-xs font-bold px-3 py-1.5 rounded-lg">
+                          手動結批
+                        </button>
+                      )}
+                      <button onClick={() => handleDelete(b)} className="bg-red-900/60 hover:bg-red-800 text-red-300 text-xs font-bold px-3 py-1.5 rounded-lg">
+                        <i className="fa-solid fa-trash"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 新批次 Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-emerald-500 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center p-5 border-b border-slate-800 shrink-0">
+              <h3 className="text-xl font-bold text-emerald-400 flex items-center gap-2">
+                <i className="fa-solid fa-plus"></i> 分配新批次
+              </h3>
+              <button onClick={() => { setShowCreateModal(false); resetForm(); }} className="text-slate-400 hover:text-white px-3 py-2 rounded-xl hover:bg-slate-800">
+                <i className="fa-solid fa-xmark text-xl"></i>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              <div>
+                <label className="block text-emerald-400 text-xs mb-1.5 font-bold">線別 ★</label>
+                <select value={form.line} onChange={e => setForm(p => ({...p, line: e.target.value}))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-bold outline-none focus:border-emerald-500"
+                >
+                  <option value="">-- 選擇線別 --</option>
+                  {LINES.map(l => (
+                    <option key={l} value={l}>
+                      {l} {occupiedLines.has(l) ? '（生產中，將排入隊列）' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 text-xs mb-1.5 font-bold">機型代碼</label>
+                <select value={form.modelCode}
+                  onChange={e => setForm(p => ({...p, modelCode: e.target.value, colorCode: '', color: '', model: '', target: ''}))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-bold text-cyan-300 outline-none focus:border-emerald-500"
+                >
+                  <option value="">-- 選擇機型 --</option>
+                  {Object.entries(WELD_MODEL_DATA).map(([code, info]) => (
+                    <option key={code} value={code}>{info.label}</option>
+                  ))}
+                  <option value="__new">新機型（手動輸入）</option>
+                </select>
+              </div>
+
+              {form.modelCode === '__new' ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 text-xs mb-1.5 font-bold">型號（前三碼）</label>
+                    <input type="text" value={form.model} maxLength={3}
+                      onChange={e => setForm(p => ({...p, model: e.target.value.slice(0,3)}))}
+                      placeholder="394" className="w-full bg-slate-950 border border-amber-600/50 rounded-xl p-3.5 text-lg font-bold text-amber-300 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 text-xs mb-1.5 font-bold">顏色代碼</label>
+                    <select value={form.colorCode}
+                      onChange={e => setForm(p => ({...p, colorCode: e.target.value, color: COLOR_CODE_MAP[e.target.value]||''}))}
+                      className="w-full bg-slate-950 border border-amber-600/30 rounded-xl p-3.5 text-lg font-bold text-amber-200 outline-none"
+                    >
+                      <option value="">-- 選 --</option>
+                      {Object.entries(COLOR_CODE_MAP).map(([c,n]) => <option key={c} value={c}>{c}—{n}</option>)}
+                    </select>
+                  </div>
+                </div>
+              ) : form.modelCode ? (
+                <div>
+                  <label className="block text-slate-400 text-xs mb-1.5 font-bold">顏色</label>
+                  <select value={form.colorCode}
+                    onChange={e => {
+                      const cc = e.target.value;
+                      const picked = getColorsForModel(form.modelCode).find(c => c.code === cc);
+                      setForm(p => ({...p, colorCode: cc, color: picked?.name || '', target: picked?.target || ''}));
+                    }}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-bold text-purple-300 outline-none"
+                  >
+                    <option value="">-- 選顏色 --</option>
+                    {getColorsForModel(form.modelCode).map(c => (
+                      <option key={c.code} value={c.code}>{c.name}（{c.code}）{c.target > 0 ? ` ➜ 參考目標 ${c.target}` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+
+              {/* ★ 完整料號預覽 */}
+              {(form.modelCode && form.colorCode) && (
+                <div className="bg-slate-800/50 rounded-xl p-3 text-center">
+                  <span className="text-slate-500 text-xs">完整料號：</span>
+                  <span className="text-white font-bold text-lg ml-2 font-mono">
+                    {PRODUCT_LINE_PREFIX}{form.modelCode === '__new' ? form.model : form.modelCode}{form.colorCode}
+                  </span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-amber-400 text-xs mb-1.5 font-bold">生產批號</label>
+                <select value={form.batchNo} onChange={e => setForm(p => ({...p, batchNo: e.target.value}))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-bold text-amber-300 outline-none"
+                >
+                  {['第一批','第二批','第三批','第四批','第五批','樣品批'].map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-cyan-400 text-xs mb-1.5 font-bold">內層發料總量 ★</label>
+                  <input type="number" value={form.innerTotal}
+                    onChange={e => setForm(p => ({...p, innerTotal: e.target.value}))}
+                    placeholder="2500" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-xl font-mono font-bold text-cyan-300 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-amber-400 text-xs mb-1.5 font-bold">外層發料總量 ★</label>
+                  <input type="number" value={form.outerTotal}
+                    onChange={e => setForm(p => ({...p, outerTotal: e.target.value}))}
+                    placeholder="2500" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-xl font-mono font-bold text-amber-300 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 text-xs mb-1.5 font-bold">
+                  目標完成數量（可參考左方自動帶入值，也可手動修改）
+                </label>
+                <input type="number" value={form.target}
+                  onChange={e => setForm(p => ({...p, target: e.target.value}))}
+                  placeholder="預設帶入發料量或產能參考值" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-mono font-bold text-slate-200 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 text-xs mb-1.5 font-bold">分配人員</label>
+                <select value={form.creator}
+                  onChange={e => setForm(p => ({...p, creator: e.target.value}))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-base font-bold text-slate-200 outline-none"
+                >
+                  <option value="">-- 選擇人員 --</option>
+                  {operatorsList.map(name => <option key={name} value={name}>{name}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 text-xs mb-1.5 font-bold">備註（選填）</label>
+                <input type="text" value={form.note}
+                  onChange={e => setForm(p => ({...p, note: e.target.value}))}
+                  placeholder="特殊交代事項" className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-base text-slate-200 outline-none"
+                />
+              </div>
+            </div>
+            <div className="p-5 border-t border-slate-800 shrink-0">
+              <button onClick={handleCreate} disabled={submitting}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95 flex items-center justify-center gap-2"
+              >
+                {submitting ? (
+                  <><i className="fa-solid fa-spinner fa-spin"></i>送出中，請稍候...</>
+                ) : (
+                  <><i className="fa-solid fa-check"></i>確認分配批次</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 編輯批次 Modal */}
+      {showEditModal && editForm && (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-blue-500 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center p-5 border-b border-slate-800 shrink-0">
+              <h3 className="text-xl font-bold text-blue-400 flex items-center gap-2">
+                <i className="fa-solid fa-pen"></i> 編輯批次
+              </h3>
+              <button onClick={() => setShowEditModal(false)} className="text-slate-400 hover:text-white px-3 py-2 rounded-xl hover:bg-slate-800">
+                <i className="fa-solid fa-xmark text-xl"></i>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              <div className="bg-slate-800/40 rounded-xl p-3 text-xs text-slate-500">
+                已扣除（不可編輯）：內層 {editForm.innerDeducted} ・ 外層 {editForm.outerDeducted}
+              </div>
+
+              <div>
+                <label className="block text-emerald-400 text-xs mb-1.5 font-bold">線別</label>
+                <select value={editForm.line} onChange={e => setEditForm(p => ({...p, line: e.target.value}))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-bold outline-none focus:border-emerald-500"
+                >
+                  {LINES.map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-cyan-400 text-xs mb-1.5 font-bold">型號</label>
+                  <input type="text" value={editForm.model}
+                    onChange={e => setEditForm(p => ({...p, model: e.target.value}))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-bold text-cyan-300 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-purple-400 text-xs mb-1.5 font-bold">顏色</label>
+                  <input type="text" value={editForm.color}
+                    onChange={e => setEditForm(p => ({...p, color: e.target.value}))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-bold text-purple-300 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-amber-400 text-xs mb-1.5 font-bold">生產批號</label>
+                <select value={editForm.batchNo} onChange={e => setEditForm(p => ({...p, batchNo: e.target.value}))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-bold text-amber-300 outline-none"
+                >
+                  {['第一批','第二批','第三批','第四批','第五批','樣品批'].map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-cyan-400 text-xs mb-1.5 font-bold">內層發料總量</label>
+                  <input type="number" value={editForm.innerTotal}
+                    onChange={e => setEditForm(p => ({...p, innerTotal: e.target.value}))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-xl font-mono font-bold text-cyan-300 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-amber-400 text-xs mb-1.5 font-bold">外層發料總量</label>
+                  <input type="number" value={editForm.outerTotal}
+                    onChange={e => setEditForm(p => ({...p, outerTotal: e.target.value}))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-xl font-mono font-bold text-amber-300 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 text-xs mb-1.5 font-bold">目標完成數量</label>
+                <input type="number" value={editForm.target}
+                  onChange={e => setEditForm(p => ({...p, target: e.target.value}))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-mono font-bold text-slate-200 outline-none"
+                />
+              </div>
+
+              <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 text-amber-300 text-xs">
+                <i className="fa-solid fa-circle-info mr-1.5"></i>
+                修改發料總量會自動重新計算剩餘量（剩餘 = 新發料量 - 已扣除量）。已扣除量不會被本次編輯影響。
+              </div>
+            </div>
+            <div className="p-5 border-t border-slate-800 shrink-0">
+              <button onClick={handleEditSubmit}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95"
+              >
+                <i className="fa-solid fa-check mr-2"></i>確認儲存修改
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ★ 批次詳情 Modal（跨班次總計 + 關聯待判記錄） */}
+      {showDetailModal && (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-cyan-500 rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center p-5 border-b border-slate-800 shrink-0">
+              <h3 className="text-xl font-bold text-cyan-400 flex items-center gap-2">
+                <i className="fa-solid fa-chart-simple"></i> 批次詳情彙整
+              </h3>
+              <button onClick={() => { setShowDetailModal(false); setDetailData(null); }} className="text-slate-400 hover:text-white px-3 py-2 rounded-xl hover:bg-slate-800">
+                <i className="fa-solid fa-xmark text-xl"></i>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {detailLoading && (
+                <div className="text-center py-12 text-slate-500">
+                  <i className="fa-solid fa-spinner fa-spin text-2xl mb-2 block"></i>載入彙整資料中...
+                </div>
+              )}
+
+              {!detailLoading && detailData && detailData.status === 'ok' && (
+                <>
+                  {/* 批次基本資訊 */}
+                  <div className="bg-slate-800/40 rounded-xl p-4 flex justify-between items-center">
+                    <div>
+                      <div className="text-2xl font-bold text-white font-mono">{detailData.batch.model}{detailData.batch.color}</div>
+                      <div className="text-slate-400 text-sm mt-1">{detailData.batch.line} ・ {detailData.batch.batchNo} ・ 共經歷 {detailData.shiftCount} 個班次</div>
+                    </div>
+                    <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${detailData.batch.batchStatus==='進行中' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-400'}`}>
+                      {detailData.batch.batchStatus}
+                    </span>
+                  </div>
+
+                  {/* 跨班次總計：10個框 */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    {[
+                      { label: '總投入數', val: detailData.summary.input, color: 'text-blue-400', bg: 'bg-blue-950/30' },
+                      { label: '總良品', val: detailData.summary.good, color: 'text-emerald-400', bg: 'bg-emerald-950/30' },
+                      { label: '總不良品', val: detailData.summary.defect, color: 'text-red-400', bg: 'bg-red-950/30' },
+                      { label: '總良率', val: detailData.summary.yieldRate + '%', color: 'text-purple-400', bg: 'bg-purple-950/30' },
+                      { label: '總重工', val: detailData.summary.rework, color: 'text-orange-400', bg: 'bg-orange-950/30' },
+                      { label: '總首件消耗', val: detailData.summary.faiCount, color: 'text-cyan-400', bg: 'bg-cyan-950/30' },
+                      { label: '內層良品餘數', val: detailData.batch.innerRemaining, color: 'text-cyan-300', bg: 'bg-cyan-950/20' },
+                      { label: '外層良品餘數', val: detailData.batch.outerRemaining, color: 'text-amber-300', bg: 'bg-amber-950/20' },
+                      { label: '內層來料不良', val: detailData.summary.incomingInnerDefect, color: 'text-pink-400', bg: 'bg-pink-950/30' },
+                      { label: '外層來料不良', val: detailData.summary.incomingOuterDefect, color: 'text-pink-400', bg: 'bg-pink-950/30' },
+                    ].map(item => (
+                      <div key={item.label} className={`${item.bg} rounded-xl p-4 text-center`}>
+                        <div className="text-slate-500 text-xs font-bold mb-1">{item.label}</div>
+                        <div className={`text-2xl font-mono font-bold ${item.color}`}>{item.val}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 不良分類明細 */}
+                  {Object.keys(detailData.defectBreakdown).length > 0 && (
+                    <div className="bg-slate-800/30 rounded-xl p-4">
+                      <div className="text-slate-400 text-xs font-bold mb-3">不良分類明細</div>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                        {Object.entries(detailData.defectBreakdown).map(([label, qty]) => (
+                          <div key={label} className="flex justify-between bg-slate-900/50 rounded-lg px-3 py-2 text-sm">
+                            <span className="text-slate-400">{label}</span>
+                            <span className="text-red-400 font-bold">{qty}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ★ 領用清單彙整：誰領走了幾支 */}
+                  {(() => {
+                    const usageMap = {};
+                    detailData.relatedPending.forEach(item => {
+                      if (item.samplerName && item.sampledQty > 0) {
+                        if (!usageMap[item.samplerName]) usageMap[item.samplerName] = 0;
+                        usageMap[item.samplerName] += item.sampledQty;
+                      }
+                    });
+                    const usageList = Object.entries(usageMap);
+                    if (usageList.length === 0) return null;
+                    const totalTaken = usageList.reduce((sum, [, qty]) => sum + qty, 0);
+                    return (
+                      <div className="bg-purple-950/20 border border-purple-800/40 rounded-xl p-4">
+                        <div className="text-purple-300 text-xs font-bold mb-3 flex items-center gap-2">
+                          <i className="fa-solid fa-user-check"></i>
+                          本批領用紀錄（共 {totalTaken} 支）
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {usageList.map(([name, qty]) => (
+                            <div key={name} className="bg-purple-900/30 border border-purple-700/40 rounded-lg px-3 py-2 flex items-center gap-2">
+                              <i className="fa-solid fa-user text-purple-400 text-xs"></i>
+                              <span className="text-white font-bold text-sm">{name}</span>
+                              <span className="text-purple-300 font-mono font-bold">{qty} 支</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* 關聯待判記錄 */}
+                  <div>
+                    <div className="text-slate-400 text-xs font-bold mb-3 flex items-center gap-2">
+                      <i className="fa-solid fa-clipboard-question"></i>
+                      此批關聯的待判記錄（{detailData.relatedPending.length} 筆）
+                    </div>
+                    {detailData.relatedPending.length === 0 && (
+                      <div className="text-center text-slate-600 text-sm py-6 bg-slate-800/20 rounded-xl">沒有待判記錄</div>
+                    )}
+                    <div className="space-y-2">
+                      {detailData.relatedPending.map(item => {
+                        const notFullyResolved = item.status === '待判中' || item.status === '部分結案';
+                        return (
+                        <div key={item.pendingId} className={`rounded-xl p-3 border ${notFullyResolved ? 'bg-amber-950/20 border-amber-700/40' : 'bg-slate-800/30 border-slate-700'}`}>
+                          {/* 標題列：數量 + 狀態 */}
+                          <div className="flex justify-between items-center mb-2">
+                            <div className="text-sm font-bold">
+                              <span className="text-white">總數量 {item.qty} pcs</span>
+                              {item.samplerName && <span className="text-purple-300 ml-2 font-normal text-xs">（{item.samplerName}領走{item.sampledQty}支）</span>}
+                            </div>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${notFullyResolved ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                              {item.status}
+                            </span>
+                          </div>
+
+                          {/* 原因 */}
+                          <div className="text-xs text-slate-500 mb-2">原因：{item.reason}</div>
+
+                          {/* 已回填結果：轉良品 N / 確定不良 N (原因) */}
+                          {item.result && (() => {
+                            const parts = item.result.split('|').map(s => s.trim()).filter(Boolean);
+                            const goodParts = parts.filter(p => p.startsWith('良品'));
+                            const badParts = parts.filter(p => !p.startsWith('良品'));
+                            const goodTotal = goodParts.reduce((sum, p) => {
+                              const m = p.match(/×(\d+)/);
+                              return sum + (m ? parseInt(m[1]) : 0);
+                            }, 0);
+                            return (
+                              <div className="flex flex-wrap gap-2 mt-1">
+                                {goodTotal > 0 && (
+                                  <span className="bg-emerald-950/40 text-emerald-400 text-xs font-bold px-2.5 py-1 rounded-lg border border-emerald-800/50">
+                                    轉良品：{goodTotal}
+                                  </span>
+                                )}
+                                {badParts.map((p, i) => {
+                                  const m = p.match(/^(.+)×(\d+)$/);
+                                  const reason = m ? m[1] : p;
+                                  const qty = m ? m[2] : '';
+                                  return (
+                                    <span key={i} className="bg-red-950/40 text-red-400 text-xs font-bold px-2.5 py-1 rounded-lg border border-red-800/50">
+                                      確定不良：{qty} {reason !== '確定不良' ? `(${reason})` : ''}
+                                    </span>
+                                  );
+                                })}
+                                <span className="text-slate-600 text-xs self-center">by {item.resolver}</span>
+                              </div>
+                            );
+                          })()}
+
+                          {notFullyResolved && (
+                            detailResolvingPendingId === item.pendingId ? (
+                              <div className="mt-3 border-t border-slate-700 pt-3 space-y-3">
+                                <div className="text-xs text-slate-400 mb-1">線上待判（可回填）：<span className="text-amber-300 font-bold">{item.remainingQty} 支</span>
+                                  {item.sampledQty > 0 && <span className="text-purple-400 ml-2">（已領走 {item.sampledQty} 支不計入）</span>}
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="block text-emerald-400 text-xs font-bold mb-1.5">轉良品</label>
+                                    <input type="number" value={resolveGoodQty}
+                                      onChange={e => setResolveGoodQty(e.target.value)}
+                                      className="w-full bg-slate-950 border border-emerald-700/50 rounded-xl p-3 text-2xl font-mono font-bold text-emerald-300 outline-none text-center focus:border-emerald-500"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-red-400 text-xs font-bold mb-1.5">確定不良</label>
+                                    <input type="number" value={resolveBadQty}
+                                      onChange={e => setResolveBadQty(e.target.value)}
+                                      className="w-full bg-slate-950 border border-red-700/50 rounded-xl p-3 text-2xl font-mono font-bold text-red-300 outline-none text-center focus:border-red-500"
+                                    />
+                                  </div>
+                                </div>
+                                {/* 不良原因：只有確定不良 > 0 才顯示 */}
+                                {(parseInt(resolveBadQty) > 0) && (
+                                  <div>
+                                    <label className="block text-slate-400 text-xs font-bold mb-1.5">不良原因</label>
+                                    <select value={resolveBadReason} onChange={e => setResolveBadReason(e.target.value)}
+                                      className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm font-bold outline-none focus:border-red-500"
+                                    >
+                                      <option value="">-- 請選擇不良原因 --</option>
+                                      {INITIAL_DEFECT_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                                    </select>
+                                  </div>
+                                )}
+                                <div className="flex gap-2">
+                                  <button onClick={() => submitDetailResolve(item)}
+                                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl text-sm"
+                                  >確認送出</button>
+                                  <button onClick={() => setDetailResolvingPendingId(null)} className="text-slate-500 text-sm px-4">取消</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button onClick={() => startDetailResolving(item)}
+                                className="mt-2 w-full bg-cyan-700 hover:bg-cyan-600 text-white font-bold py-2 rounded-lg text-xs"
+                              >
+                                <i className="fa-solid fa-gavel mr-1"></i>回填結果
+                              </button>
+                            )
+                          )}
+                        </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
