@@ -95,6 +95,7 @@ function DetailModal({ line, lineColor, data, target, onClose }) {
             </div>
           ))}
         </div>
+        {/* ★ 稼動 + 不良並排，移除 max-h 限制 */}
         <div className="px-5 pb-5 grid grid-cols-2 gap-4">
           {/* 稼動時間 */}
           <div className="bg-slate-800/30 rounded-2xl p-4">
@@ -104,7 +105,7 @@ function DetailModal({ line, lineColor, data, target, onClose }) {
               {label:'調機',val:Math.round(tuneMin),  color:'bg-blue-500',   pct:totalMin>0?tuneMin/totalMin:0},
               {label:'停機',val:Math.round(stopMin),  color:'bg-red-500',    pct:totalMin>0?stopMin/totalMin:0},
             ].map(s=>(
-              <div key={s.label} className="mb-2.5">
+              <div key={s.label} className="mb-3">
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-slate-400">{s.label}</span>
                   <span className="num text-white font-bold">{s.val}分鐘</span>
@@ -115,27 +116,29 @@ function DetailModal({ line, lineColor, data, target, onClose }) {
               </div>
             ))}
           </div>
-          {/* 完整不良分析 */}
+          {/* 完整不良分析（移除 max-h，全部顯示） */}
           <div className="bg-slate-800/30 rounded-2xl p-4">
             <div className="text-slate-400 text-sm font-bold mb-3">不良分析（共 {totalNg} pcs）</div>
-            <div className="space-y-2 max-h-40 overflow-auto">
-              {Object.entries(defectMap||{}).sort((a,b)=>b[1]-a[1]).map(([lbl,cnt],i)=>{
-                const pct = totalNg>0?(cnt/totalNg*100).toFixed(1):0;
-                return (
-                  <div key={lbl}>
-                    <div className="flex justify-between text-xs mb-0.5">
-                      <span className="text-slate-300 truncate flex-1">{lbl}</span>
-                      <span className="num text-red-400 font-bold ml-2">{cnt}</span>
-                      <span className="text-slate-500 ml-1 w-10 text-right">{pct}%</span>
+            {totalNg > 0 ? (
+              <div className="space-y-2.5">
+                {Object.entries(defectMap||{}).sort((a,b)=>b[1]-a[1]).map(([lbl,cnt],i)=>{
+                  const pct = totalNg>0?(cnt/totalNg*100).toFixed(1):0;
+                  return (
+                    <div key={lbl}>
+                      <div className="flex justify-between text-xs mb-0.5">
+                        <span className="text-slate-300 truncate flex-1">{lbl}</span>
+                        <span className="num text-red-400 font-bold ml-2">{cnt}</span>
+                        <span className="text-slate-500 ml-1 w-10 text-right">{pct}%</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${i===0?'bg-red-500':i===1?'bg-orange-500':i===2?'bg-amber-500':'bg-slate-500'}`}
+                          style={{width:pct+'%'}}></div>
+                      </div>
                     </div>
-                    <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${i===0?'bg-red-500':i===1?'bg-orange-500':i===2?'bg-amber-500':'bg-slate-500'}`}
-                        style={{width:pct+'%'}}></div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            ) : <div className="text-slate-700 text-sm text-center py-4">此區間無不良記錄</div>}
           </div>
         </div>
       </div>
@@ -143,14 +146,13 @@ function DetailModal({ line, lineColor, data, target, onClose }) {
   );
 }
 
-// 線別卡片
+// 線別卡片（三欄緊湊版）
 function LineCard({ line, lineColor, weldRows, machRows, target, onClick }) {
-  if (weldRows.filter(r=>r[30]!=='待判校正').length === 0) {
+  const rows = weldRows.filter(r=>r[30]!=='待判校正');
+  if (rows.length === 0) {
     return (
-      <div onClick={onClick} className="card bg-slate-900/30 border border-slate-800/50 rounded-2xl px-5 py-3 flex items-center gap-4 cursor-pointer hover:bg-slate-900/60">
-        <div className="w-24 shrink-0" style={{borderLeft:`3px solid #334155`,paddingLeft:'10px'}}>
-          <div className="text-slate-500 font-bold text-lg">{line}</div>
-        </div>
+      <div onClick={onClick} className="card flex items-center gap-3 bg-slate-900/30 border border-slate-800/50 rounded-xl px-4 py-2 cursor-pointer hover:bg-slate-900/60">
+        <div className="font-bold text-slate-500 text-base w-16 shrink-0">{line}</div>
         <div className="text-slate-700 text-sm">此區間無資料</div>
         <div className="ml-auto text-slate-700 text-xs">點擊查看 →</div>
       </div>
@@ -161,106 +163,104 @@ function LineCard({ line, lineColor, weldRows, machRows, target, onClick }) {
   const yrC = yieldColor(d.yr);
 
   return (
-    <div onClick={onClick} className="card bg-slate-900/70 border border-slate-800 rounded-2xl overflow-hidden"
+    <div onClick={onClick} className="card bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden"
       style={{borderLeft:`4px solid ${lineColor}`}}>
-      <div className="grid grid-cols-3 gap-0">
+      <div className="grid grid-cols-3">
 
         {/* 左欄：線別 + 良率 */}
-        <div className="p-4 border-r border-slate-800 flex flex-col justify-center">
-          <div className="text-white font-bold text-xl mb-1">{line}</div>
-          <div className="text-slate-500 text-xs mb-3">良率 (Yield)</div>
-          <div className="num font-bold text-5xl mb-2" style={{color:yrC}}>{d.yr}%</div>
-          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-            <div className="h-full rounded-full" style={{width:Math.min(100,d.yr)+'%', backgroundColor:yrC, transition:'width 0.8s'}}></div>
+        <div className="px-4 py-3 border-r border-slate-800 flex items-center gap-4">
+          <div>
+            <div className="text-white font-bold text-base mb-0.5">{line}</div>
+            <div className="num font-bold text-3xl leading-none" style={{color:yrC}}>{d.yr}%</div>
+            <div className="text-slate-600 text-[10px] mt-1.5">
+              良品 <span className="text-slate-300 num font-bold">{d.good.toLocaleString()}</span>
+              <span className="mx-1">/</span>
+              投入 <span className="num">{d.input.toLocaleString()}</span>
+            </div>
           </div>
-          <div className="text-slate-600 text-xs mt-2">
-            良品 <span className="text-slate-300 num font-bold">{d.good.toLocaleString()}</span> / 投入 <span className="num">{d.input.toLocaleString()}</span>
+          <div className="flex-1">
+            <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-2">
+              <div className="h-full rounded-full" style={{width:Math.min(100,d.yr)+'%',backgroundColor:yrC,transition:'width 0.8s'}}></div>
+            </div>
+            <div className="grid grid-cols-2 gap-1">
+              <div className="text-center">
+                <div className="text-slate-600 text-[9px]">稼動率</div>
+                <div className="num font-bold text-sm text-cyan-400">{d.oee}%</div>
+              </div>
+              <div className="text-center">
+                <div className="text-slate-600 text-[9px]">達成率</div>
+                <div className="num font-bold text-sm" style={{color:d.ar>=90?'#10b981':d.ar>=70?'#f59e0b':'#ef4444'}}>
+                  {target>0 ? d.ar+'%' : '—'}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* 中欄：三個數字 + 稼動條 */}
-        <div className="p-4 border-r border-slate-800 flex flex-col justify-between">
-          <div className="grid grid-cols-3 gap-2 mb-3">
+        {/* 中欄：稼動條 + 數字 */}
+        <div className="px-4 py-3 border-r border-slate-800 flex flex-col justify-center">
+          <div className="text-slate-500 text-[9px] mb-1.5">稼動分布 <span className="num text-slate-400">{Math.round(d.activeMin)}分鐘</span></div>
+          <div className="flex h-2 bg-slate-800 rounded-full overflow-hidden mb-2">
+            {d.totalMin > 0 && <>
+              <div className="h-full bg-emerald-500" style={{width:(d.activeMin/d.totalMin*100)+'%'}}></div>
+              <div className="h-full bg-blue-500"    style={{width:(d.tuneMin/d.totalMin*100)+'%'}}></div>
+              <div className="h-full bg-red-500"     style={{width:(d.stopMin/d.totalMin*100)+'%'}}></div>
+            </>}
+          </div>
+          <div className="flex gap-3">
             {[
-              {label:'累計投入',    val:d.input.toLocaleString(), unit:'pcs', color:'text-cyan-300'},
-              {label:'當期良率',    val:d.yr+'%',                 unit:'',    color:'text-white'},
-              {label:'稼動率(OEE)', val:d.oee+'%',               unit:'',    color:'text-cyan-400'},
+              {color:'bg-emerald-500',label:'稼動',val:Math.round(d.activeMin)},
+              {color:'bg-blue-500',   label:'調機',val:Math.round(d.tuneMin)},
+              {color:'bg-red-500',    label:'停機',val:Math.round(d.stopMin)},
             ].map(s=>(
-              <div key={s.label} className="text-center">
-                <div className="text-slate-500 text-[10px] mb-1">{s.label}</div>
-                <div className={`num font-bold text-xl ${s.color}`}>{s.val}</div>
-                {s.unit && <div className="text-slate-600 text-[10px]">{s.unit}</div>}
+              <div key={s.label} className="flex items-center gap-1">
+                <div className={`w-1.5 h-1.5 rounded-sm shrink-0 ${s.color}`}></div>
+                <span className="text-slate-600 text-[9px]">{s.label}</span>
+                <span className="num text-slate-400 text-[9px] font-bold">{s.val}m</span>
               </div>
             ))}
           </div>
-          {/* 達成率 */}
           {target > 0 && (
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-slate-500">目標達成率</span>
-                <span className="num font-bold" style={{color:d.ar>=90?'#10b981':d.ar>=70?'#f59e0b':'#ef4444'}}>{d.ar}%</span>
-              </div>
-              <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+            <div className="mt-2">
+              <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
                 <div className="h-full rounded-full" style={{
                   width:Math.min(100,d.ar)+'%',
                   backgroundColor:d.ar>=90?'#10b981':d.ar>=70?'#f59e0b':'#ef4444',
                   transition:'width 0.8s'
                 }}></div>
               </div>
+              <div className="text-slate-600 text-[9px] mt-0.5">達成率進度</div>
             </div>
           )}
-          {/* 稼動條 */}
-          <div className="mt-3">
-            <div className="text-slate-500 text-[10px] mb-1">稼動水平 <span className="num text-slate-400">{Math.round(d.activeMin)}分鐘</span></div>
-            <div className="flex h-2 bg-slate-800 rounded-full overflow-hidden gap-0.5">
-              {d.totalMin > 0 && <>
-                <div className="h-full bg-emerald-500" style={{width:(d.activeMin/d.totalMin*100)+'%'}}></div>
-                <div className="h-full bg-blue-500" style={{width:(d.tuneMin/d.totalMin*100)+'%'}}></div>
-                <div className="h-full bg-red-500" style={{width:(d.stopMin/d.totalMin*100)+'%'}}></div>
-              </>}
-            </div>
-            <div className="flex gap-3 mt-1">
-              {[{color:'bg-emerald-500',label:'稼動'},{color:'bg-blue-500',label:'調機'},{color:'bg-red-500',label:'停機'}].map(s=>(
-                <div key={s.label} className="flex items-center gap-1">
-                  <div className={`w-2 h-2 rounded-sm ${s.color}`}></div>
-                  <span className="text-slate-600 text-[9px]">{s.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
 
-        {/* 右欄：TOP3 不良帕雷托 */}
-        <div className="p-4 flex flex-col justify-center">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-slate-400 text-xs font-bold flex items-center gap-1">
-              <i className="fa-solid fa-ranking-star text-amber-400"></i> TOP 3 製程不良
-            </span>
-            {d.totalNg > 0 && <span className="bg-red-950/60 text-red-400 text-[10px] font-bold px-2 py-0.5 rounded-full">共 {d.totalNg} pcs</span>}
+        {/* 右欄：TOP3 */}
+        <div className="px-4 py-3 flex flex-col justify-center">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-slate-500 text-[9px] font-bold">TOP 3 不良</span>
+            {d.totalNg > 0 && <span className="text-red-400 text-[9px] num">共 {d.totalNg} pcs</span>}
           </div>
           {d.top3.length > 0 ? d.top3.map(([lbl,cnt],i)=>{
-            const pct = d.totalNg>0 ? (cnt/d.totalNg*100).toFixed(1) : 0;
+            const pct = d.totalNg>0?(cnt/d.totalNg*100).toFixed(0):0;
             const barColor = i===0?'#ef4444':i===1?'#f97316':'#f59e0b';
             return (
-              <div key={lbl} className="mb-2.5">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-slate-600 text-xs w-3">{i+1}</span>
-                    <span className="text-slate-300 text-xs truncate max-w-28">{lbl}</span>
+              <div key={lbl} className="mb-1.5">
+                <div className="flex items-center justify-between mb-0.5">
+                  <div className="flex items-center gap-1 min-w-0">
+                    <span className="text-slate-600 text-[9px] shrink-0">{i+1}</span>
+                    <span className="text-slate-300 text-[10px] truncate">{lbl}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="num text-sm font-bold text-white">{cnt}</span>
-                    <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{backgroundColor:barColor+'22',color:barColor}}>
-                      {pct}%
-                    </span>
+                  <div className="flex items-center gap-1 shrink-0 ml-1">
+                    <span className="num text-xs font-bold text-white">{cnt}</span>
+                    <span className="text-[9px] font-bold" style={{color:barColor}}>{pct}%</span>
                   </div>
                 </div>
-                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
                   <div className="h-full rounded-full" style={{width:pct+'%',backgroundColor:barColor,transition:'width 0.8s'}}></div>
                 </div>
               </div>
             );
-          }) : <div className="text-slate-700 text-sm text-center py-4">無不良記錄</div>}
+          }) : <div className="text-slate-700 text-xs text-center py-2">無不良記錄</div>}
         </div>
       </div>
     </div>
@@ -414,7 +414,7 @@ function App() {
 
       {/* 各線卡片 */}
       {!loading && weldRows.length > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-1.5">
           {LINES.map((line,i) => (
             <LineCard key={line} line={line} lineColor={LINE_COLORS[i]}
               weldRows={weldRows.filter(r=>r[3]===line)}
