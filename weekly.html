@@ -1,331 +1,427 @@
+
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>熔接線 — 週報彙整看板</title>
+<title>熔接線週報彙整</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
-  body { font-family: -apple-system, "Noto Sans TC", sans-serif; }
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
-  ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+  body { font-family: -apple-system, "Noto Sans TC", sans-serif; background: #060b18; }
+  ::-webkit-scrollbar { width:6px; } ::-webkit-scrollbar-thumb { background:#334155; border-radius:4px; }
+  .num { font-family: 'SF Mono','Consolas',monospace; font-variant-numeric: tabular-nums; }
+  .card { transition: all 0.2s; cursor: pointer; }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
 </style>
 </head>
-<body class="bg-slate-950 text-slate-100">
+<body class="text-slate-100 min-h-screen">
 <div id="root"></div>
-
 <script type="text/babel">
-const { useState, useEffect, useRef, useMemo } = React;
+const { useState, useEffect, useMemo } = React;
 
-// =====================================================
-//  API 設定（跟其他系統共用同一個後端）
-// =====================================================
 const API_URL = "https://script.google.com/macros/s/AKfycbxITB84zMMmsoA85EysG_OnOdW8U7yoCLihJlCE-SRC4FX_9Y1JfOdET7fLp9ga0yUUQw/exec";
+const LINES = ['1號線','2號線','3號線','4號線','5號線','6號線','7號線','8號線'];
+const LINE_COLORS = ['#34d399','#60a5fa','#f59e0b','#f472b6','#a78bfa','#22d3ee','#fb923c','#86efac'];
+const DEFECT_LABELS = ["熔接不良(正)","熔接不良(反)","熔接不良(側)","熔接不良(底)","損傷","組裝不良","機台操作不當","調機不良","髒污","按鈕對位","相機鍵異常","異色點","鏟傷多肉","其他"];
 
-// 取得「本週一」「本週日」「上週一」「上週日」日期字串
-function getWeekRange(weeksAgo = 0) {
-  const now = new Date();
-  const dow = now.getDay();
-  const daysSinceMonday = dow === 0 ? 6 : dow - 1;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - daysSinceMonday - (weeksAgo * 7));
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  const fmt = (d) => d.toISOString().slice(0, 10);
-  return { from: fmt(monday), to: fmt(sunday) };
+function getLastWeekRange() {
+  const now = new Date(), dow = now.getDay(), dm = dow===0?6:dow-1;
+  const thisMonday = new Date(now); thisMonday.setDate(now.getDate()-dm); thisMonday.setHours(0,0,0,0);
+  const lastMonday = new Date(thisMonday); lastMonday.setDate(thisMonday.getDate()-7);
+  const lastSunday = new Date(thisMonday); lastSunday.setDate(thisMonday.getDate()-1);
+  return { from: lastMonday.toISOString().slice(0,10), to: lastSunday.toISOString().slice(0,10) };
 }
 
-function StatCard({ label, value, unit, color, icon }) {
+function yieldColor(y) {
+  if (y >= 90) return '#10b981';
+  if (y >= 80) return '#f59e0b';
+  return '#ef4444';
+}
+
+function calcLine(weldRows, machRows, target) {
+  const rows = weldRows.filter(r => r[30] !== '待判校正');
+  const input  = rows.reduce((s,r)=>s+(r[10]||0),0);
+  const good   = rows.reduce((s,r)=>s+(r[11]||0),0);
+  const defect = rows.reduce((s,r)=>s+(r[12]||0),0);
+  const rework = rows.reduce((s,r)=>s+(r[13]||0),0);
+  const yr = input>0 ? +(good/input*100).toFixed(1) : 0;
+  const rr = input>0 ? +(rework/input*100).toFixed(1) : 0;
+  const ar = target>0 ? +(good/target*100).toFixed(1) : 0;
+  const activeMin = machRows.reduce((s,r)=>s+Number(r[4]||0),0);
+  const tuneMin   = machRows.reduce((s,r)=>s+Number(r[5]||0),0);
+  const stopMin   = machRows.reduce((s,r)=>s+Number(r[6]||0),0);
+  const idleMin   = machRows.reduce((s,r)=>s+Number(r[12]||0),0);
+  const totalMin  = activeMin+tuneMin+stopMin+idleMin;
+  const oee = totalMin>0 ? +(activeMin/totalMin*100).toFixed(1) : 0;
+  const defectMap = {};
+  rows.forEach(r => DEFECT_LABELS.forEach((lbl,i) => {
+    const v=r[14+i]||0; if(v>0) defectMap[lbl]=(defectMap[lbl]||0)+v;
+  }));
+  const totalNg = Object.values(defectMap).reduce((s,v)=>s+v,0);
+  const top3 = Object.entries(defectMap).sort((a,b)=>b[1]-a[1]).slice(0,3);
+  return { input, good, defect, rework, yr, rr, ar, oee, activeMin, tuneMin, stopMin, totalMin, top3, totalNg };
+}
+
+// 線別詳細視窗
+function DetailModal({ line, lineColor, data, target, onClose }) {
+  const { input, good, defect, rework, yr, rr, ar, oee, activeMin, tuneMin, stopMin, totalMin, top3, totalNg, defectMap } = data;
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center gap-4">
-      <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl ${color}`}>
-        <i className={`fa-solid ${icon}`}></i>
-      </div>
-      <div>
-        <div className="text-slate-500 text-xs font-bold tracking-wide">{label}</div>
-        <div className="text-2xl font-mono font-bold text-white">{value}<span className="text-sm text-slate-500 ml-1">{unit}</span></div>
+    <div className="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4 overflow-auto" onClick={onClose}>
+      <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-3xl shadow-2xl" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-slate-800" style={{borderLeft:`5px solid ${lineColor}`,borderRadius:'1.5rem 1.5rem 0 0'}}>
+          <div>
+            <h2 className="text-2xl font-bold text-white">{line} 詳細報表</h2>
+            <p className="text-slate-500 text-xs mt-0.5">完整不良分析 / 稼動時間分布</p>
+          </div>
+          <button onClick={onClose} className="bg-slate-800 hover:bg-slate-700 text-slate-400 px-4 py-2 rounded-xl text-sm font-bold">
+            <i className="fa-solid fa-xmark mr-1"></i>關閉
+          </button>
+        </div>
+        <div className="p-5 grid grid-cols-2 gap-4">
+          {/* 四大指標 */}
+          {[
+            {label:'良率',   val:`${yr}%`,  color:yieldColor(yr)},
+            {label:'稼動率', val:`${oee}%`, color:'#22d3ee'},
+            {label:'達成率', val:target>0?`${ar}%`:'—', color:ar>=90?'#10b981':ar>=70?'#f59e0b':'#ef4444'},
+            {label:'重工率', val:`${rr}%`,  color:rr>5?'#f97316':'#94a3b8'},
+          ].map(s=>(
+            <div key={s.label} className="bg-slate-800/50 rounded-2xl p-4 text-center">
+              <div className="text-slate-500 text-sm mb-2">{s.label}</div>
+              <div className="num font-bold text-4xl" style={{color:s.color}}>{s.val}</div>
+            </div>
+          ))}
+        </div>
+        <div className="px-5 pb-5 grid grid-cols-2 gap-4">
+          {/* 稼動時間 */}
+          <div className="bg-slate-800/30 rounded-2xl p-4">
+            <div className="text-slate-400 text-sm font-bold mb-3">稼動時間分布</div>
+            {[
+              {label:'稼動',val:Math.round(activeMin),color:'bg-emerald-500',pct:totalMin>0?activeMin/totalMin:0},
+              {label:'調機',val:Math.round(tuneMin),  color:'bg-blue-500',   pct:totalMin>0?tuneMin/totalMin:0},
+              {label:'停機',val:Math.round(stopMin),  color:'bg-red-500',    pct:totalMin>0?stopMin/totalMin:0},
+            ].map(s=>(
+              <div key={s.label} className="mb-2.5">
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-400">{s.label}</span>
+                  <span className="num text-white font-bold">{s.val}分鐘</span>
+                </div>
+                <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
+                  <div className={`h-full ${s.color} rounded-full`} style={{width:(s.pct*100)+'%',transition:'width 0.8s'}}></div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* 完整不良分析 */}
+          <div className="bg-slate-800/30 rounded-2xl p-4">
+            <div className="text-slate-400 text-sm font-bold mb-3">不良分析（共 {totalNg} pcs）</div>
+            <div className="space-y-2 max-h-40 overflow-auto">
+              {Object.entries(defectMap||{}).sort((a,b)=>b[1]-a[1]).map(([lbl,cnt],i)=>{
+                const pct = totalNg>0?(cnt/totalNg*100).toFixed(1):0;
+                return (
+                  <div key={lbl}>
+                    <div className="flex justify-between text-xs mb-0.5">
+                      <span className="text-slate-300 truncate flex-1">{lbl}</span>
+                      <span className="num text-red-400 font-bold ml-2">{cnt}</span>
+                      <span className="text-slate-500 ml-1 w-10 text-right">{pct}%</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${i===0?'bg-red-500':i===1?'bg-orange-500':i===2?'bg-amber-500':'bg-slate-500'}`}
+                        style={{width:pct+'%'}}></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-// Chart.js 圖表元件（柱狀圖）
-function BarChart({ labels, datasets, id }) {
-  const canvasRef = useRef(null);
-  const chartRef = useRef(null);
+// 線別卡片
+function LineCard({ line, lineColor, weldRows, machRows, target, onClick }) {
+  if (weldRows.filter(r=>r[30]!=='待判校正').length === 0) {
+    return (
+      <div onClick={onClick} className="card bg-slate-900/30 border border-slate-800/50 rounded-2xl px-5 py-3 flex items-center gap-4 cursor-pointer hover:bg-slate-900/60">
+        <div className="w-24 shrink-0" style={{borderLeft:`3px solid #334155`,paddingLeft:'10px'}}>
+          <div className="text-slate-500 font-bold text-lg">{line}</div>
+        </div>
+        <div className="text-slate-700 text-sm">此區間無資料</div>
+        <div className="ml-auto text-slate-700 text-xs">點擊查看 →</div>
+      </div>
+    );
+  }
 
-  useEffect(() => {
-    if (chartRef.current) chartRef.current.destroy();
-    const ctx = canvasRef.current.getContext('2d');
-    chartRef.current = new Chart(ctx, {
-      type: 'bar',
-      data: { labels, datasets },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { labels: { color: '#cbd5e1' } },
-        },
-        scales: {
-          x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
-          y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
-        },
-      },
-    });
-    return () => { if (chartRef.current) chartRef.current.destroy(); };
-  }, [labels, datasets]);
+  const d = calcLine(weldRows, machRows, target);
+  const yrC = yieldColor(d.yr);
 
-  return <canvas ref={canvasRef} id={id}></canvas>;
+  return (
+    <div onClick={onClick} className="card bg-slate-900/70 border border-slate-800 rounded-2xl overflow-hidden"
+      style={{borderLeft:`4px solid ${lineColor}`}}>
+      <div className="grid grid-cols-3 gap-0">
+
+        {/* 左欄：線別 + 良率 */}
+        <div className="p-4 border-r border-slate-800 flex flex-col justify-center">
+          <div className="text-white font-bold text-xl mb-1">{line}</div>
+          <div className="text-slate-500 text-xs mb-3">良率 (Yield)</div>
+          <div className="num font-bold text-5xl mb-2" style={{color:yrC}}>{d.yr}%</div>
+          <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div className="h-full rounded-full" style={{width:Math.min(100,d.yr)+'%', backgroundColor:yrC, transition:'width 0.8s'}}></div>
+          </div>
+          <div className="text-slate-600 text-xs mt-2">
+            良品 <span className="text-slate-300 num font-bold">{d.good.toLocaleString()}</span> / 投入 <span className="num">{d.input.toLocaleString()}</span>
+          </div>
+        </div>
+
+        {/* 中欄：三個數字 + 稼動條 */}
+        <div className="p-4 border-r border-slate-800 flex flex-col justify-between">
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {[
+              {label:'累計投入',    val:d.input.toLocaleString(), unit:'pcs', color:'text-cyan-300'},
+              {label:'當期良率',    val:d.yr+'%',                 unit:'',    color:'text-white'},
+              {label:'稼動率(OEE)', val:d.oee+'%',               unit:'',    color:'text-cyan-400'},
+            ].map(s=>(
+              <div key={s.label} className="text-center">
+                <div className="text-slate-500 text-[10px] mb-1">{s.label}</div>
+                <div className={`num font-bold text-xl ${s.color}`}>{s.val}</div>
+                {s.unit && <div className="text-slate-600 text-[10px]">{s.unit}</div>}
+              </div>
+            ))}
+          </div>
+          {/* 達成率 */}
+          {target > 0 && (
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-slate-500">目標達成率</span>
+                <span className="num font-bold" style={{color:d.ar>=90?'#10b981':d.ar>=70?'#f59e0b':'#ef4444'}}>{d.ar}%</span>
+              </div>
+              <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div className="h-full rounded-full" style={{
+                  width:Math.min(100,d.ar)+'%',
+                  backgroundColor:d.ar>=90?'#10b981':d.ar>=70?'#f59e0b':'#ef4444',
+                  transition:'width 0.8s'
+                }}></div>
+              </div>
+            </div>
+          )}
+          {/* 稼動條 */}
+          <div className="mt-3">
+            <div className="text-slate-500 text-[10px] mb-1">稼動水平 <span className="num text-slate-400">{Math.round(d.activeMin)}分鐘</span></div>
+            <div className="flex h-2 bg-slate-800 rounded-full overflow-hidden gap-0.5">
+              {d.totalMin > 0 && <>
+                <div className="h-full bg-emerald-500" style={{width:(d.activeMin/d.totalMin*100)+'%'}}></div>
+                <div className="h-full bg-blue-500" style={{width:(d.tuneMin/d.totalMin*100)+'%'}}></div>
+                <div className="h-full bg-red-500" style={{width:(d.stopMin/d.totalMin*100)+'%'}}></div>
+              </>}
+            </div>
+            <div className="flex gap-3 mt-1">
+              {[{color:'bg-emerald-500',label:'稼動'},{color:'bg-blue-500',label:'調機'},{color:'bg-red-500',label:'停機'}].map(s=>(
+                <div key={s.label} className="flex items-center gap-1">
+                  <div className={`w-2 h-2 rounded-sm ${s.color}`}></div>
+                  <span className="text-slate-600 text-[9px]">{s.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* 右欄：TOP3 不良帕雷托 */}
+        <div className="p-4 flex flex-col justify-center">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-slate-400 text-xs font-bold flex items-center gap-1">
+              <i className="fa-solid fa-ranking-star text-amber-400"></i> TOP 3 製程不良
+            </span>
+            {d.totalNg > 0 && <span className="bg-red-950/60 text-red-400 text-[10px] font-bold px-2 py-0.5 rounded-full">共 {d.totalNg} pcs</span>}
+          </div>
+          {d.top3.length > 0 ? d.top3.map(([lbl,cnt],i)=>{
+            const pct = d.totalNg>0 ? (cnt/d.totalNg*100).toFixed(1) : 0;
+            const barColor = i===0?'#ef4444':i===1?'#f97316':'#f59e0b';
+            return (
+              <div key={lbl} className="mb-2.5">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-600 text-xs w-3">{i+1}</span>
+                    <span className="text-slate-300 text-xs truncate max-w-28">{lbl}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="num text-sm font-bold text-white">{cnt}</span>
+                    <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{backgroundColor:barColor+'22',color:barColor}}>
+                      {pct}%
+                    </span>
+                  </div>
+                </div>
+                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full" style={{width:pct+'%',backgroundColor:barColor,transition:'width 0.8s'}}></div>
+                </div>
+              </div>
+            );
+          }) : <div className="text-slate-700 text-sm text-center py-4">無不良記錄</div>}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function App() {
-  const [weekOffset, setWeekOffset] = useState(1); // 1 = 上週（預設）, 0 = 本週
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('line'); // line / model / operator
-  const [range, setRange] = useState(getWeekRange(1));
+  const { from: defFrom, to: defTo } = getLastWeekRange();
+  const [fromDate, setFromDate] = useState(defFrom);
+  const [toDate,   setToDate]   = useState(defTo);
+  const [loading, setLoading]   = useState(false);
+  const [weldRows,    setWeldRows]    = useState([]);
+  const [machineRows, setMachineRows] = useState([]);
+  const [batchData,   setBatchData]   = useState([]);
+  const [error, setError] = useState('');
+  const [selectedLine, setSelectedLine] = useState(null);
 
-  const fetchData = (offset) => {
-    const r = getWeekRange(offset);
-    setRange(r);
-    setLoading(true);
-    fetch(`${API_URL}?action=weekly_v2&from=${r.from}&to=${r.to}`)
-      .then(res => res.json())
-      .then(json => { setData(json); setLoading(false); })
-      .catch(() => setLoading(false));
+  const fetchData = async (from, to) => {
+    setLoading(true); setError('');
+    try {
+      const [w,m,b] = await Promise.all([
+        fetch(`${API_URL}?action=weld_log_range&from=${from}&to=${to}`).then(r=>r.json()),
+        fetch(`${API_URL}?action=machine_log_range&from=${from}&to=${to}`).then(r=>r.json()),
+        fetch(`${API_URL}?action=batch_all`).then(r=>r.json()),
+      ]);
+      if (w.status==='ok') setWeldRows(w.rows||[]); else setError(w.message||'載入失敗');
+      if (m.status==='ok') setMachineRows(m.rows||[]);
+      if (b.status==='ok') setBatchData(b.batches||[]);
+    } catch(e) { setError('無法連線到 API'); }
+    setLoading(false);
   };
 
-  useEffect(() => { fetchData(weekOffset); }, [weekOffset]);
+  useEffect(() => { fetchData(fromDate, toDate); }, []);
 
-  const lineChartData = useMemo(() => {
-    if (!data || data.status !== 'ok' || !data.lineReport) return null;
-    return {
-      labels: data.lineReport.map(l => l.line),
-      datasets: [
-        { label: '良率 %', data: data.lineReport.map(l => l.yieldRate), backgroundColor: '#34d399' },
-        { label: '稼動率 %', data: data.lineReport.map(l => l.oee ?? 0), backgroundColor: '#60a5fa' },
-      ],
-    };
-  }, [data]);
+  const setQuickRange = (label) => {
+    const now = new Date(), dow = now.getDay(), dm = dow===0?6:dow-1;
+    if (label==='本週') {
+      const mon=new Date(now); mon.setDate(now.getDate()-dm); mon.setHours(0,0,0,0);
+      setFromDate(mon.toISOString().slice(0,10)); setToDate(now.toISOString().slice(0,10));
+    } else if (label==='上週') {
+      const {from,to}=getLastWeekRange(); setFromDate(from); setToDate(to);
+    } else if (label==='本月') {
+      const first=new Date(now.getFullYear(),now.getMonth(),1);
+      setFromDate(first.toISOString().slice(0,10)); setToDate(now.toISOString().slice(0,10));
+    } else {
+      const first=new Date(now.getFullYear(),now.getMonth()-1,1);
+      const last=new Date(now.getFullYear(),now.getMonth(),0);
+      setFromDate(first.toISOString().slice(0,10)); setToDate(last.toISOString().slice(0,10));
+    }
+  };
 
-  const modelChartData = useMemo(() => {
-    if (!data || data.status !== 'ok' || !data.modelReport) return null;
-    const top = data.modelReport.slice(0, 10);
-    return {
-      labels: top.map(m => m.model),
-      datasets: [{ label: '投入數量', data: top.map(m => m.input), backgroundColor: '#a78bfa' }],
-    };
-  }, [data]);
+  const targetMap = useMemo(() => {
+    const map = {};
+    LINES.forEach(line => {
+      map[line] = batchData.filter(b=>b.line===line).reduce((s,b)=>s+Number(b.target||0),0);
+    });
+    return map;
+  }, [batchData]);
 
-  const operatorChartData = useMemo(() => {
-    if (!data || data.status !== 'ok' || !data.operatorReport) return null;
-    const top = data.operatorReport.slice(0, 15);
-    return {
-      labels: top.map(o => o.name),
-      datasets: [{ label: '良率 %', data: top.map(o => o.yieldRate), backgroundColor: '#fbbf24' }],
-    };
-  }, [data]);
+  const lineDataMap = useMemo(() => {
+    const map = {};
+    LINES.forEach(line => {
+      map[line] = calcLine(
+        weldRows.filter(r=>r[3]===line),
+        machineRows.filter(r=>r[3]===line),
+        targetMap[line]||0
+      );
+    });
+    return map;
+  }, [weldRows, machineRows, targetMap]);
+
+  // 全廠總計（只算有資料的線）
+  const linesWithData = LINES.filter(l => lineDataMap[l]?.input > 0);
+  const totalInput  = linesWithData.reduce((s,l)=>s+lineDataMap[l].input,0);
+  const totalGood   = linesWithData.reduce((s,l)=>s+lineDataMap[l].good,0);
+  const avgYield    = totalInput>0 ? (totalGood/totalInput*100).toFixed(1) : '—';
+  const avgOee      = linesWithData.length>0 ? (linesWithData.reduce((s,l)=>s+lineDataMap[l].oee,0)/linesWithData.length).toFixed(1) : '—';
+  const totalTarget = LINES.reduce((s,l)=>s+(targetMap[l]||0),0);
+  const avgAchieve  = totalTarget>0 ? (totalGood/totalTarget*100).toFixed(1) : '—';
+
+  const selIdx   = selectedLine ? LINES.indexOf(selectedLine) : -1;
+  const selColor = selIdx>=0 ? LINE_COLORS[selIdx] : '#fff';
 
   return (
-    <div className="min-h-screen p-6 lg:p-10">
+    <div className="min-h-screen p-4 lg:p-6">
+      {selectedLine && (
+        <DetailModal line={selectedLine} lineColor={selColor}
+          data={lineDataMap[selectedLine]}
+          target={targetMap[selectedLine]||0}
+          onClose={() => setSelectedLine(null)} />
+      )}
+
       {/* Header */}
-      <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-emerald-400 flex items-center gap-3">
-            <i className="fa-solid fa-chart-line"></i> 熔接線週報彙整
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2.5">
+            <i className="fa-solid fa-chart-line text-emerald-400"></i> 熔接線週報彙整
           </h1>
-          <p className="text-slate-500 text-sm mt-1">
-            區間：{range.from} ～ {range.to}　
-            <span className="text-slate-600">每週一上午自動更新「週報彙整」工作表，此看板即時抓取最新資料</span>
-          </p>
+          <p className="text-slate-500 text-xs mt-1">點擊任一條線查看完整不良分析與稼動詳情</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => setWeekOffset(p => p + 1)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2.5 rounded-xl transition-all">
-            <i className="fa-solid fa-chevron-left mr-1.5"></i>上一週
-          </button>
-          <button onClick={() => setWeekOffset(1)} className={`px-4 py-2.5 rounded-xl font-bold transition-all ${weekOffset===1 ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>
-            上週
-          </button>
-          <button onClick={() => setWeekOffset(0)} className={`px-4 py-2.5 rounded-xl font-bold transition-all ${weekOffset===0 ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>
-            本週(至今)
-          </button>
-          <button onClick={() => setWeekOffset(p => Math.max(0, p - 1))} className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2.5 rounded-xl transition-all">
-            下一週<i className="fa-solid fa-chevron-right ml-1.5"></i>
+        <a href="menu.html" className="bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold px-4 py-2 rounded-xl text-sm">
+          <i className="fa-solid fa-arrow-left mr-1.5"></i>返回
+        </a>
+      </div>
+
+      {/* 日期區間 */}
+      <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-3 mb-4 flex flex-wrap items-center gap-2">
+        {['本週','上週','本月','上月'].map(l=>(
+          <button key={l} onClick={()=>setQuickRange(l)}
+            className="px-3 py-1.5 rounded-lg text-sm font-bold bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-all">{l}</button>
+        ))}
+        <div className="flex items-center gap-2 ml-1">
+          <input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-white outline-none focus:border-emerald-500"/>
+          <span className="text-slate-600">～</span>
+          <input type="date" value={toDate} onChange={e=>setToDate(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-white outline-none focus:border-emerald-500"/>
+          <button onClick={()=>fetchData(fromDate,toDate)}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-1.5 rounded-xl text-sm">
+            {loading ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-magnifying-glass"></i>}
           </button>
         </div>
       </div>
 
-      {loading && (
-        <div className="text-center py-20 text-slate-500">
-          <i className="fa-solid fa-spinner fa-spin text-3xl mb-3 block"></i>載入週報資料中...
+      {/* 全廠總覽卡片 */}
+      {!loading && totalInput > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+          {[
+            {label:'平均良率 (Yield)', val:avgYield+'%',   color:'#f59e0b', icon:'fa-circle-check'},
+            {label:'平均稼動率 (OEE)', val:avgOee+'%',    color:'#22d3ee', icon:'fa-gauge-high'},
+            {label:'目標達成率 (Goal)',val:avgAchieve+'%', color:'#10b981', icon:'fa-bullseye'},
+            {label:'週期累計投入',      val:totalInput.toLocaleString(), color:'#e2e8f0', icon:'fa-boxes-stacked', unit:'pcs'},
+          ].map(s=>(
+            <div key={s.label} className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <i className={`fa-solid ${s.icon} text-sm`} style={{color:s.color}}></i>
+                <span className="text-slate-500 text-xs">{s.label}</span>
+              </div>
+              <div className="num font-bold text-4xl" style={{color:s.color}}>{s.val}</div>
+              {s.unit && <div className="text-slate-600 text-xs mt-1">{s.unit}</div>}
+            </div>
+          ))}
         </div>
       )}
 
-      {!loading && data && data.status !== 'ok' && (
-        <div className="text-center py-20 text-slate-500">
-          <i className="fa-solid fa-triangle-exclamation text-3xl mb-3 block text-amber-500"></i>
-          載入失敗：{data.message || '請確認 API 設定正確，並重新整理頁面'}
-        </div>
+      {error && <div className="bg-red-950/40 border border-red-700/50 rounded-2xl p-4 mb-4 text-red-400 text-sm"><i className="fa-solid fa-triangle-exclamation mr-2"></i>{error}</div>}
+      {loading && <div className="text-center py-16 text-slate-500"><i className="fa-solid fa-spinner fa-spin text-2xl mb-3 block text-emerald-500"></i>載入資料中...</div>}
+      {!loading && weldRows.length === 0 && !error && (
+        <div className="text-center py-16 text-slate-600"><i className="fa-solid fa-chart-line text-3xl mb-3 block"></i>選擇日期區間後按查詢</div>
       )}
 
-      {!loading && !data && (
-        <div className="text-center py-20 text-slate-500">
-          <i className="fa-solid fa-triangle-exclamation text-3xl mb-3 block text-amber-500"></i>
-          無法連線到 API，請確認網路連線後重新整理頁面
-        </div>
-      )}
-
-      {!loading && data && data.status === 'ok' && (
-        <>
-          {/* 總計卡片 */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <StatCard label="總投入數量" value={data.total.input} unit="pcs" color="bg-blue-500/20 text-blue-400" icon="fa-cubes" />
-            <StatCard label="總良品數量" value={data.total.good} unit="pcs" color="bg-emerald-500/20 text-emerald-400" icon="fa-circle-check" />
-            <StatCard label="總不良數量" value={data.total.defect} unit="pcs" color="bg-red-500/20 text-red-400" icon="fa-circle-xmark" />
-            <StatCard label="整體良率" value={data.total.yieldRate} unit="%" color="bg-purple-500/20 text-purple-400" icon="fa-percent" />
-          </div>
-
-          {/* Tab 切換 */}
-          <div className="flex gap-2 mb-6">
-            {[
-              { key: 'line', label: '按線別', icon: 'fa-industry' },
-              { key: 'model', label: '按型號', icon: 'fa-tag' },
-              { key: 'operator', label: '按人員', icon: 'fa-user' },
-            ].map(t => (
-              <button key={t.key} onClick={() => setActiveTab(t.key)}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-all ${activeTab===t.key ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
-              >
-                <i className={`fa-solid ${t.icon}`}></i>{t.label}
-              </button>
-            ))}
-          </div>
-
-          {/* 線別視角 */}
-          {activeTab === 'line' && (
-            <div className="space-y-6">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6" style={{height: '360px'}}>
-                {lineChartData && <BarChart labels={lineChartData.labels} datasets={lineChartData.datasets} id="lineChart" />}
-              </div>
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-800 text-slate-400">
-                    <tr>
-                      <th className="p-3 text-left">線別</th>
-                      <th className="p-3 text-right">投入</th>
-                      <th className="p-3 text-right">良品</th>
-                      <th className="p-3 text-right">不良</th>
-                      <th className="p-3 text-right">重工</th>
-                      <th className="p-3 text-right">良率</th>
-                      <th className="p-3 text-right">稼動率</th>
-                      <th className="p-3 text-right">調機分鐘</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.lineReport.map(l => (
-                      <tr key={l.line} className="border-t border-slate-800 hover:bg-slate-800/40">
-                        <td className="p-3 font-bold text-white">{l.line}</td>
-                        <td className="p-3 text-right text-slate-300">{l.input}</td>
-                        <td className="p-3 text-right text-emerald-400">{l.good}</td>
-                        <td className="p-3 text-right text-red-400">{l.defect}</td>
-                        <td className="p-3 text-right text-orange-300">{l.rework}</td>
-                        <td className="p-3 text-right font-bold">{l.yieldRate}%</td>
-                        <td className="p-3 text-right text-blue-300">{l.oee !== null ? l.oee+'%' : '--'}</td>
-                        <td className="p-3 text-right text-teal-300">{l.tuneMin}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* 型號視角 */}
-          {activeTab === 'model' && (
-            <div className="space-y-6">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6" style={{height: '360px'}}>
-                {modelChartData && <BarChart labels={modelChartData.labels} datasets={modelChartData.datasets} id="modelChart" />}
-              </div>
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-800 text-slate-400">
-                    <tr>
-                      <th className="p-3 text-left">型號</th>
-                      <th className="p-3 text-right">投入</th>
-                      <th className="p-3 text-right">良品</th>
-                      <th className="p-3 text-right">不良</th>
-                      <th className="p-3 text-right">良率</th>
-                      <th className="p-3 text-left">生產線別</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.modelReport.map(m => (
-                      <tr key={m.model} className="border-t border-slate-800 hover:bg-slate-800/40">
-                        <td className="p-3 font-bold text-cyan-300">{m.model}</td>
-                        <td className="p-3 text-right text-slate-300">{m.input}</td>
-                        <td className="p-3 text-right text-emerald-400">{m.good}</td>
-                        <td className="p-3 text-right text-red-400">{m.defect}</td>
-                        <td className="p-3 text-right font-bold">{m.yieldRate}%</td>
-                        <td className="p-3 text-slate-400">{m.lines}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* 人員視角 */}
-          {activeTab === 'operator' && (
-            <div className="space-y-6">
-              <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 text-amber-300 text-xs">
-                <i className="fa-solid fa-circle-info mr-1.5"></i>
-                同一班次的良品/不良數，組裝、機台、檢驗三個角色都各記一份個人成績，可用來看出何時是誰在班。
-              </div>
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6" style={{height: '400px'}}>
-                {operatorChartData && <BarChart labels={operatorChartData.labels} datasets={operatorChartData.datasets} id="operatorChart" />}
-              </div>
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-800 text-slate-400">
-                    <tr>
-                      <th className="p-3 text-left">姓名</th>
-                      <th className="p-3 text-right">投入</th>
-                      <th className="p-3 text-right">良品</th>
-                      <th className="p-3 text-right">不良</th>
-                      <th className="p-3 text-right">良率</th>
-                      <th className="p-3 text-right">參與班次</th>
-                      <th className="p-3 text-left">參與線別</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.operatorReport.map(o => (
-                      <tr key={o.name} className="border-t border-slate-800 hover:bg-slate-800/40">
-                        <td className="p-3 font-bold text-white">{o.name}</td>
-                        <td className="p-3 text-right text-slate-300">{o.input}</td>
-                        <td className="p-3 text-right text-emerald-400">{o.good}</td>
-                        <td className="p-3 text-right text-red-400">{o.defect}</td>
-                        <td className="p-3 text-right font-bold">{o.yieldRate}%</td>
-                        <td className="p-3 text-right text-slate-400">{o.shifts}</td>
-                        <td className="p-3 text-slate-400">{o.lines}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {!loading && (!data || data.status !== 'ok') && (
-        <div className="text-center py-20 text-slate-500">
-          <i className="fa-solid fa-triangle-exclamation text-3xl mb-3 block text-amber-500"></i>
-          無法載入資料，請確認 API 網址設定正確
+      {/* 各線卡片 */}
+      {!loading && weldRows.length > 0 && (
+        <div className="space-y-3">
+          {LINES.map((line,i) => (
+            <LineCard key={line} line={line} lineColor={LINE_COLORS[i]}
+              weldRows={weldRows.filter(r=>r[3]===line)}
+              machRows={machineRows.filter(r=>r[3]===line)}
+              target={targetMap[line]||0}
+              onClick={() => setSelectedLine(line)} />
+          ))}
         </div>
       )}
     </div>
