@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -46,7 +45,7 @@ function Clock() {
   return <span className="num font-bold text-white text-xl">{hh}<span className="blink">:</span>{mm}<span className="blink">:</span>{ss}</span>;
 }
 
-function LineCard({ line, lineColor, data, machData }) {
+function LineCard({ line, lineColor, data, machData, isOnline }) {
   const batch = data?.batch;
   const currentShift = data?.currentShift;
   const weldRows = data?.todayRows || [];
@@ -68,10 +67,13 @@ function LineCard({ line, lineColor, data, machData }) {
   const top3 = Object.entries(defectMap).sort((a,b)=>b[1]-a[1]).slice(0,3);
   const totalNg = Object.values(defectMap).reduce((s,v)=>s+v,0);
 
-  const isIdle = !batch;
+  // ★ 狀態判斷：isOnline 才算「生產中」，沒登入只顯示「待機」
+  const isIdle = !batch || !isOnline;
   let statusLabel, statusBg, borderColor, glowClass, rowBg;
-  if (isIdle) {
+  if (!batch) {
     statusLabel='閒置'; statusBg='text-slate-500'; borderColor='#334155'; glowClass=''; rowBg='bg-slate-900/30';
+  } else if (!isOnline) {
+    statusLabel='待機'; statusBg='text-slate-400'; borderColor='#475569'; glowClass=''; rowBg='bg-slate-900/50';
   } else if (batch?.batchStatus==='暫停中') {
     statusLabel='暫停'; statusBg='text-orange-400'; borderColor='#f97316'; glowClass='glow-amber'; rowBg='bg-orange-950/20';
   } else if (Number(yr)<80 && input>0) {
@@ -143,6 +145,7 @@ function LineCard({ line, lineColor, data, machData }) {
 
 function App() {
   const [lineData,   setLineData]   = useState({});
+  const [onlineMap,  setOnlineMap]  = useState({});
   const [loading,    setLoading]    = useState(true);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [countdown,  setCountdown]  = useState(REFRESH_INTERVAL/1000);
@@ -152,14 +155,17 @@ function App() {
     setLoading(true);
     try {
       const today = todayStr();
-      const [weldRes, machRes, batchRes] = await Promise.all([
+      const [weldRes, machRes, batchRes, onlineRes] = await Promise.all([
         fetch(`${API_URL}?action=weld_log_range&from=${today}&to=${today}`).then(r=>r.json()),
         fetch(`${API_URL}?action=machine_log_range&from=${today}&to=${today}`).then(r=>r.json()),
         fetch(`${API_URL}?action=batch_all`).then(r=>r.json()),
+        fetch(`${API_URL}?action=online_status`).then(r=>r.json()),
       ]);
-      const weldRows   = weldRes.status==='ok'  ? weldRes.rows    : [];
-      const machRows   = machRes.status==='ok'  ? machRes.rows    : [];
-      const allBatches = batchRes.status==='ok' ? batchRes.batches: [];
+      const weldRows   = weldRes.status==='ok'   ? weldRes.rows     : [];
+      const machRows   = machRes.status==='ok'   ? machRes.rows     : [];
+      const allBatches = batchRes.status==='ok'  ? batchRes.batches : [];
+      const online     = onlineRes.status==='ok' ? onlineRes.onlineMap : {};
+      setOnlineMap(online);
 
       const result = {};
       LINES.forEach(line => {
@@ -273,6 +279,7 @@ function App() {
             lineColor={['#34d399','#60a5fa','#f59e0b','#f472b6','#a78bfa','#22d3ee','#fb923c','#86efac'][i]}
             data={lineData[line]}
             machData={lineData[line]?.machData}
+            isOnline={!!onlineMap[line]}
           />
         ))}
       </div>
