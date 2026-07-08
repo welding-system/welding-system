@@ -1,3 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>熔接生產即時看板</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; background: #060b18; }
+  #root { position: fixed; top: 0; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; }
+  body { font-family: -apple-system, "Noto Sans TC", sans-serif; background: #060b18; color: #e2e8f0; }
+  .num { font-family: 'SF Mono','Consolas',monospace; font-variant-numeric: tabular-nums; }
+  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.3} }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .pulse-dot { animation: pulse-dot 2s infinite; }
+  .blink { animation: blink 1s step-end infinite; }
+  .glow-green { box-shadow: inset 0 0 0 1px rgba(34,197,94,0.3); }
+  .glow-amber { box-shadow: inset 0 0 0 1px rgba(245,158,11,0.3); }
+  .glow-red   { box-shadow: inset 0 0 0 1px rgba(239,68,68,0.4); }
+</style>
+</head>
+<body>
+<div id="root"></div>
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
@@ -45,35 +73,31 @@ function LineCard({ line, lineColor, data, machData }) {
     statusLabel='閒置'; statusBg='text-slate-500'; borderColor='#334155'; glowClass=''; rowBg='bg-slate-900/30';
   } else if (batch?.batchStatus==='暫停中') {
     statusLabel='暫停'; statusBg='text-orange-400'; borderColor='#f97316'; glowClass='glow-amber'; rowBg='bg-orange-950/20';
-  } else if (Number(yr)<90 && input>0) {
+  } else if (Number(yr)<80 && input>0) {
     statusLabel='生產中'; statusBg='text-red-400'; borderColor='#ef4444'; glowClass='glow-red'; rowBg='bg-red-950/20';
-  } else if (Number(yr)<97 && input>0) {
+  } else if (Number(yr)<90 && input>0) {
     statusLabel='生產中'; statusBg='text-amber-400'; borderColor='#f59e0b'; glowClass='glow-amber'; rowBg='bg-amber-950/10';
   } else {
     statusLabel='生產中'; statusBg='text-emerald-400'; borderColor='#22c55e'; glowClass='glow-green'; rowBg='bg-emerald-950/10';
   }
 
-  const yrColor = Number(yr)>=97?'text-emerald-400':Number(yr)>=90?'text-amber-400':'text-red-400';
-  const arColor = ar==='—'?'text-slate-600':Number(ar)>=90?'text-emerald-400':Number(ar)>=70?'text-amber-400':'text-red-400';
+  const yrColor = Number(yr)>=90?'text-emerald-400':Number(yr)>=80?'text-amber-400':'text-red-400';
+  const arColor = ar==='—'?'text-slate-600':Number(ar)>=90?'text-emerald-400':Number(ar)>=80?'text-amber-400':'text-red-400';
 
   return (
     <div className={`${rowBg} ${glowClass} rounded-xl flex items-stretch`}
       style={{borderLeft:`4px solid ${borderColor}`, flex:1, minHeight:0}}>
-
-      {/* 1. 線別區 */}
-      <div className="flex flex-col justify-center px-4 w-60 shrink-0 border-r border-slate-800">
+      <div className="flex flex-col justify-center px-4 w-72 shrink-0 border-r border-slate-800">
         <div className="flex items-center gap-2 mb-1.5">
           <span className="font-bold text-white text-3xl tracking-tight">{line}</span>
           <span className={`text-sm font-bold px-1.5 py-0.5 rounded bg-slate-800/80 ${statusBg}`}>{statusLabel}</span>
           {currentShift && <span className="text-xs font-medium text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">{currentShift}</span>}
         </div>
         {batch
-          ? <div className="text-sm text-slate-300 font-semibold font-mono truncate">{batch.model}{batch.color?.slice(0,1)} · {batch.batchNo}</div>
+          ? <div className="text-sm text-slate-300 font-semibold font-mono">{batch.model}{batch.color} · {batch.batchNo}</div>
           : <div className="text-sm text-slate-600">尚未分配批次</div>}
       </div>
-
-      {/* 2. 數據區 */}
-      <div className="flex-1 grid grid-cols-6 items-center border-r border-slate-800 px-2 text-center">
+      <div className="flex-1 grid grid-cols-6 items-center border-r border-slate-800 px-1 text-center">
         {[
           {label:'目標',   val:target||'—', color:'text-slate-400'},
           {label:'投入',   val:input,        color:'text-cyan-300'},
@@ -88,8 +112,6 @@ function LineCard({ line, lineColor, data, machData }) {
           </div>
         ))}
       </div>
-
-      {/* 3. 不良 TOP3 */}
       <div className="flex flex-col justify-center px-3 w-44 shrink-0 border-r border-slate-800">
         <div className="text-slate-500 text-xs mb-1.5 font-bold">不良 TOP3</div>
         {top3.length > 0 ? top3.map(([lbl,cnt],i)=>(
@@ -101,9 +123,7 @@ function LineCard({ line, lineColor, data, machData }) {
           </div>
         )) : <div className="text-slate-700 text-xs">— 無不良 —</div>}
       </div>
-
-      {/* 4. 達成率/良率/稼動率/重工率 */}
-      <div className="grid grid-cols-4 items-center px-4 w-72 shrink-0 text-center">
+      <div className="grid grid-cols-4 items-center px-2 w-96 shrink-0 text-center">
         {[
           {label:'達成率', val:ar==='—'?'—':ar+'%', color:arColor},
           {label:'良率',   val:yr+'%',   color:yrColor},
@@ -112,7 +132,7 @@ function LineCard({ line, lineColor, data, machData }) {
         ].map(s=>(
           <div key={s.label} className="flex flex-col justify-center items-center">
             <div className="text-slate-500 text-xs mb-1">{s.label}</div>
-            <div className={`num font-bold text-xl leading-none ${s.color}`}>{s.val}</div>
+            <div className={`num font-bold text-2xl leading-none ${s.color}`}>{s.val}</div>
           </div>
         ))}
       </div>
@@ -184,7 +204,7 @@ function App() {
   const rateColor   = Number(totalRate)>=90?'text-emerald-400':Number(totalRate)>=70?'text-amber-400':'text-red-400';
 
   return (
-    <div style={{height:'100vh',display:'flex',flexDirection:'column',padding:'8px',gap:'6px'}}>
+    <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,display:'flex',flexDirection:'column',padding:'8px',gap:'6px'}}>
       <div className="flex items-center gap-4 shrink-0 bg-slate-900/60 rounded-xl px-4 py-2">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-cyan-500/20 border border-cyan-500/30 rounded-lg flex items-center justify-center">
