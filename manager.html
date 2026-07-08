@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -659,12 +660,15 @@ function App() {
               )}
 
               <div>
-                <label className="block text-amber-400 text-xs mb-1.5 font-bold">生產批號</label>
-                <select value={form.batchNo} onChange={e => setForm(p => ({...p, batchNo: e.target.value}))}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-bold text-amber-300 outline-none"
-                >
-                  {['第一批','第二批','第三批','第四批','第五批','樣品批'].map(b => <option key={b} value={b}>{b}</option>)}
-                </select>
+                <label className="block text-amber-400 text-xs mb-1.5 font-bold">生產批號（可自由輸入）</label>
+                <input type="text" list="batchNoList" value={form.batchNo}
+                  onChange={e => setForm(p => ({...p, batchNo: e.target.value}))}
+                  placeholder="如：第一批、2批、B1..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-bold text-amber-300 outline-none focus:border-amber-500"
+                />
+                <datalist id="batchNoList">
+                  {['第一批','第二批','第三批','第四批','第五批','樣品批'].map(b => <option key={b} value={b}/>)}
+                </datalist>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -772,12 +776,15 @@ function App() {
               </div>
 
               <div>
-                <label className="block text-amber-400 text-xs mb-1.5 font-bold">生產批號</label>
-                <select value={editForm.batchNo} onChange={e => setEditForm(p => ({...p, batchNo: e.target.value}))}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-bold text-amber-300 outline-none"
-                >
-                  {['第一批','第二批','第三批','第四批','第五批','樣品批'].map(b => <option key={b} value={b}>{b}</option>)}
-                </select>
+                <label className="block text-amber-400 text-xs mb-1.5 font-bold">生產批號（可自由輸入）</label>
+                <input type="text" list="batchNoListEdit" value={editForm.batchNo}
+                  onChange={e => setEditForm(p => ({...p, batchNo: e.target.value}))}
+                  placeholder="如：第一批、2批、B1..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-lg font-bold text-amber-300 outline-none focus:border-amber-500"
+                />
+                <datalist id="batchNoListEdit">
+                  {['第一批','第二批','第三批','第四批','第五批','樣品批'].map(b => <option key={b} value={b}/>)}
+                </datalist>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
