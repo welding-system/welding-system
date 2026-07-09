@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -183,6 +182,7 @@
       const [sendOutQty, setSendOutQty] = useState('');
       const [sendOutSamplerName, setSendOutSamplerName] = useState(''); // ★ 領走人姓名
       const [sendOutSampledQty, setSendOutSampledQty] = useState('');   // ★ 領走數量
+      const [shiftTakenOutLog, setShiftTakenOutLog] = useState([]);     // ★ 本班送外待判領走記錄 [{name, qty}]
       const [sendOutReason, setSendOutReason] = useState('');
       const [sendOutDate, setSendOutDate] = useState(() => new Date().toISOString().slice(0,10));
       const [showPendingQueryModal, setShowPendingQueryModal] = useState(false);
@@ -207,8 +207,9 @@
       const [isIdleMode, setIsIdleMode] = useState(false); // ★ 閒置等待模式：這條線目前沒有批次，但仍可走交接班流程
 
       // ★ 作業員名單：從 Sheets「系統設定」動態讀取
-      const [operatorsList, setOperatorsList] = useState(FALLBACK_OPERATORS);
+      const [operatorsList, setOperatorsList] = useState([]); // [{name, shift}]
       const [operatorsLoading, setOperatorsLoading] = useState(true);
+      const [showAllOperators, setShowAllOperators] = useState(false); // ★ 顯示全部人員開關
 
       // 3. 機台狀態與 Modal 狀態
       const [status, setStatus] = useState('running'); 
@@ -261,6 +262,65 @@
         setToastMsg(msg);
         setTimeout(() => setToastMsg(''), 3000);
       };
+
+      // ★ localStorage 自動存檔（防止誤觸重整遺失資料）
+      const LS_KEY = 'welding_panel_state';
+      useEffect(() => {
+        // 只在生產中才存檔
+        if (appScreen !== 'production') return;
+        const snapshot = {
+          appScreen, lineInfo, shiftStartTime: shiftStartTime ? shiftStartTime.toISOString() : null,
+          goodCount, reworkDetails, faiCount, batchFaiCount,
+          defectDetails, fleshyCount, pendingDetails,
+          incomingInnerDefect, incomingOuterDefect,
+          initialInner, initialOuter, innerDiff, outerDiff,
+          statusDurations, status,
+          currentBatchId, isIdleMode,
+          shiftTakenOutLog, handoverLogs,
+          savedAt: Date.now(),
+        };
+        try { localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); } catch(e) {}
+      }, [appScreen, goodCount, reworkDetails, faiCount, defectDetails, pendingDetails,
+          incomingInnerDefect, incomingOuterDefect, initialInner, initialOuter,
+          statusDurations, status, shiftTakenOutLog]);
+
+      // ★ 頁面載入時嘗試還原（重新整理後自動回到生產畫面）
+      useEffect(() => {
+        try {
+          const raw = localStorage.getItem(LS_KEY);
+          if (!raw) return;
+          const s = JSON.parse(raw);
+          // 超過8小時的存檔不還原（避免隔天開到舊資料）
+          if (!s.savedAt || Date.now() - s.savedAt > 8 * 60 * 60 * 1000) {
+            localStorage.removeItem(LS_KEY); return;
+          }
+          if (s.appScreen !== 'production') return;
+          // 還原所有狀態
+          setLineInfo(s.lineInfo || {});
+          setShiftStartTime(s.shiftStartTime ? new Date(s.shiftStartTime) : null);
+          setGoodCount(s.goodCount || 0);
+          setReworkDetails(s.reworkDetails || {'正面':0,'背面':0,'側邊':0,'底部':0});
+          setFaiCount(s.faiCount || 0);
+          setBatchFaiCount(s.batchFaiCount || 0);
+          setDefectDetails(s.defectDetails || {});
+          setFleshyCount(s.fleshyCount || 0);
+          setPendingDetails(s.pendingDetails || {});
+          setIncomingInnerDefect(s.incomingInnerDefect || 0);
+          setIncomingOuterDefect(s.incomingOuterDefect || 0);
+          setInitialInner(s.initialInner || 0);
+          setInitialOuter(s.initialOuter || 0);
+          setInnerDiff(s.innerDiff || 0);
+          setOuterDiff(s.outerDiff || 0);
+          setStatusDurations(s.statusDurations || {running:0,setup_lc:0,setup_fb:0,setup_sb:0,error:0,idle:0});
+          setStatus(s.status || 'running');
+          setCurrentBatchId(s.currentBatchId || null);
+          setIsIdleMode(s.isIdleMode || false);
+          setShiftTakenOutLog(s.shiftTakenOutLog || []);
+          if (s.handoverLogs) setHandoverLogs(s.handoverLogs);
+          setAppScreen('production');
+          console.log('✅ 已從本地存檔還原生產資料');
+        } catch(e) { console.log('localStorage 還原失敗', e); }
+      }, []); // 只在第一次載入執行
 
       // --- 計算屬性 ---
       const pendingCount = useMemo(() => Object.values(pendingDetails).reduce((sum, val) => sum + val, 0), [pendingDetails]);
@@ -327,6 +387,17 @@
         if (h >= 16 && h < 24) return { name: '中班 (16:00 - 00:00)', shortName: '中班', icon: 'fa-cloud-moon', color: 'text-indigo-400', bg: 'bg-indigo-500/20', border: 'border-indigo-500/30' };
         return { name: '夜班 (00:00 - 08:00)', shortName: '夜班', icon: 'fa-moon', color: 'text-blue-400', bg: 'bg-blue-500/20', border: 'border-blue-500/30' };
       }, [currentTime]);
+
+      // ★ 依當前班別篩選人員（shiftInfo 定義後才能用）
+      const filteredOperators = useMemo(() => {
+        const allNames = operatorsList.map(o => typeof o === 'string' ? o : o.name);
+        if (showAllOperators || operatorsList.length === 0) return allNames;
+        const currentShiftName = shiftInfo.shortName;
+        const filtered = operatorsList
+          .filter(o => !o.shift || o.shift === currentShiftName)
+          .map(o => typeof o === 'string' ? o : o.name);
+        return filtered.length > 0 ? filtered : allNames;
+      }, [operatorsList, showAllOperators, shiftInfo]);
 
       const statusDisplay = {
         running:  { label: '生產中',   icon: 'fa-bolt',                                     theme: 'bg-emerald-500/20 border-emerald-500 text-emerald-400' },
@@ -421,7 +492,12 @@
           .then(res => res.json())
           .then(data => {
             if (data.status === 'ok' && data.operators && data.operators.length > 0) {
-              setOperatorsList(data.operators);
+              // ★ 優先用 operatorsWithShift（含班別），沒有就用 operators（字串陣列）
+              const raw = data.operatorsWithShift || data.operators;
+              const ops = raw.map(o =>
+                typeof o === 'string' ? { name: o, shift: '' } : o
+              );
+              setOperatorsList(ops);
             }
             setOperatorsLoading(false);
           })
@@ -442,6 +518,36 @@
         const t = setInterval(check, 60000);
         return () => clearInterval(t);
       }, [appScreen, lineInfo, goodCount, totalInput, totalDefect, reworkCount, defectDetails, incomingInnerDefect, incomingOuterDefect, faiCount]);
+
+      // --- 每30分鐘自動送出稼動紀錄（讓 Dashboard 即時顯示稼動率）---
+      useEffect(() => {
+        if (appScreen !== 'production') return;
+        const check = () => {
+          const m = new Date().getMinutes();
+          // 每30分鐘整（0分或30分）後的第1分鐘觸發
+          if (m !== 1 && m !== 31) return;
+          const totalSec = Object.values(statusDurations).reduce((s,v)=>s+v, 0);
+          const activeSec  = statusDurations.running    || 0;
+          const tuneSec    = (statusDurations.setup_lc || 0) + (statusDurations.setup_fb || 0) + (statusDurations.setup_sb || 0);
+          const pauseSec   = statusDurations.error      || 0;
+          const idleSec    = statusDurations.idle       || 0;
+          sendToAPI({
+            type: 'machine_log',
+            line: lineInfo.name,
+            activeMinutes: Math.round(activeSec / 60),
+            tuneMinutes:   Math.round(tuneSec   / 60),
+            pauseMinutes:  Math.round(pauseSec  / 60),
+            idleMinutes:   Math.round(idleSec   / 60),
+            input:   totalInput,
+            rework:  reworkCount,
+            pauseReason: '',
+            tuneReason:  '',
+            note: '每30分鐘自動回報',
+          });
+        };
+        const t = setInterval(check, 60000);
+        return () => clearInterval(t);
+      }, [appScreen, lineInfo, statusDurations, totalInput, reworkCount]);
 
       // --- 核心日誌函數 ---
       const addLog = (text, customStyle = null) => {
@@ -609,6 +715,7 @@
         setIncomingOuterDefect(0);
         setInnerDiff(0);
         setOuterDiff(0);
+        setShiftTakenOutLog([]); // 領走記錄清零
         setStatus('running');
 
         if (handoverWithBatchClose) {
@@ -629,6 +736,10 @@
 
         setShowHandoverModal(false);
         setNextShiftStaff({ assembler: '', machineOp: '', inspector: '' });
+        // ★ 通知後端作業員已下班（Dashboard 清除生產中標記）
+        sendToAPI({ type: 'operator_logout', line: lineInfo.name });
+        // ★ 下班完成，清除本地存檔（讓下一班從乾淨狀態開始）
+        try { localStorage.removeItem('welding_panel_state'); } catch(e) {}
         // 🌟 結算完成 → 回到「開班批次確認」畫面（而非完全重新登入），下一班只需確認人員 + 批次資訊
         setShowLoginModal(true);
       };
@@ -655,6 +766,8 @@
           workerCount: nextShiftStaff.workerCount || '',  // ★ 加工人數
         }));
         setShiftStartTime(new Date()); // ★ 記錄開班時間
+        // ★ 通知後端作業員已登入（Dashboard 顯示生產中）
+        sendToAPI({ type: 'operator_login', line: lineInfo.name, assembler: finalAssembler });
         addLog(`🆕 接班登入：組裝:${finalAssembler} / 機台:${finalMachineOp} / 檢驗:${finalInspector}${nextShiftStaff.workerCount ? ` / 加工人數:${nextShiftStaff.workerCount}` : ''}`, 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30');
         setShowLoginModal(false);
         setHandoverWithBatchClose(false);
@@ -760,6 +873,9 @@
         });
 
         const logSampleText = sampledQty > 0 ? `，${sendOutSamplerName}領走${sampledQty}支` : '';
+        if (sampledQty > 0) {
+          setShiftTakenOutLog(prev => [...prev, { name: sendOutSamplerName.trim(), qty: sampledQty }]);
+        }
         addLog(`📤 送外待判登記：總計${totalQty} pcs（線上${onLineQty}${logSampleText}），原因：${sendOutReason}，送外日期：${sendOutDate}`, 'bg-purple-950/40 text-purple-400 border-purple-900/30');
         showToast(`✅ 已登記 ${totalQty} pcs 送外待判，已先計入不良。所有線都能在「待判查詢」追蹤這筆。`);
         setSendOutQty(''); setSendOutSampledQty(''); setSendOutSamplerName(''); setSendOutReason('');
@@ -908,13 +1024,30 @@
                     <button onClick={fetchOperatorsList} className="ml-auto text-amber-200 underline">重新載入</button>
                   </div>
                 )}
-                {!operatorsLoading && operatorsList === FALLBACK_OPERATORS && (
+                {!operatorsLoading && operatorsList.length === 0 && (
                   <div className="bg-red-950/30 border border-red-700/40 rounded-xl p-3 text-red-300 text-xs flex items-center gap-2">
                     <i className="fa-solid fa-triangle-exclamation"></i>
                     人員名單載入失敗，請檢查網路後重試
                     <button onClick={fetchOperatorsList} className="ml-auto text-red-200 underline">重試</button>
                   </div>
                 )}
+
+                {/* ★ 班別篩選提示 + 顯示全部按鈕 */}
+                {operatorsList.length > 0 && (
+                  <div className="flex items-center justify-between bg-slate-800/50 rounded-xl px-3 py-2">
+                    <span className="text-slate-500 text-xs">
+                      <i className="fa-solid fa-filter mr-1"></i>
+                      顯示 {showAllOperators ? '全部' : shiftInfo.shortName} 人員（{filteredOperators.length} 人）
+                    </span>
+                    <button onClick={() => setShowAllOperators(p => !p)}
+                      className={`text-xs font-bold px-3 py-1 rounded-lg transition-all ${
+                        showAllOperators ? 'bg-amber-600 text-white' : 'bg-slate-700 text-slate-400 hover:text-white'
+                      }`}>
+                      {showAllOperators ? '收回篩選' : '顯示全部人員'}
+                    </button>
+                  </div>
+                )}
+
                 {[
                   { label: '組裝作業員', key: 'assembler' },
                   { label: '機台操作員', key: 'machineOp' },
@@ -928,7 +1061,7 @@
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-xl font-bold outline-none focus:border-emerald-500 transition-all text-slate-100"
                     >
                       <option value="">無 (無此崗位/免填)</option>
-                      {operatorsList.map(name => (
+                      {filteredOperators.map(name => (
                         <option key={name} value={name} className="bg-slate-900">{name}</option>
                       ))}
                     </select>
@@ -1458,6 +1591,37 @@
                     </div>
                   </div>
 
+                  {/* ★ 送外待判領走記錄 */}
+                  {shiftTakenOutLog.length > 0 && (
+                    <div className="bg-yellow-950/30 border border-yellow-700/40 rounded-2xl p-4">
+                      <div className="text-yellow-400 text-sm font-bold mb-2 flex items-center gap-2">
+                        <i className="fa-solid fa-person-walking-arrow-right"></i>
+                        本班送外待判領走記錄（共 {shiftTakenOutLog.reduce((s,r)=>s+r.qty,0)} 支）
+                      </div>
+                      <div className="space-y-1">
+                        {shiftTakenOutLog.map((r, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm">
+                            <span className="text-slate-500 text-xs w-4">{i+1}</span>
+                            <span className="text-slate-300">{r.name}</span>
+                            <span className="text-slate-500">領走</span>
+                            <span className="text-yellow-400 font-bold font-mono">{r.qty}</span>
+                            <span className="text-slate-500">支</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ★ 首件消耗說明 */}
+                  {faiCount > 0 && (
+                    <div className="bg-cyan-950/30 border border-cyan-700/40 rounded-2xl p-4">
+                      <div className="text-cyan-400 text-sm font-bold mb-1 flex items-center gap-2">
+                        <i className="fa-solid fa-microscope"></i>
+                        首件消耗：本班共消耗首件樣件 {faiCount} 支（已放置首件專用區，不計入良品）
+                      </div>
+                    </div>
+                  )}
+
                   {/* 下班同時結批選項 */}
                   <div className="flex items-center gap-3 bg-slate-950/60 p-4 rounded-xl border border-slate-800 mt-2">
                     <input 
@@ -1536,7 +1700,7 @@
                         className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-xl font-bold outline-none focus:border-emerald-500 transition-all text-slate-100"
                       >
                         <option value="">無 (無此崗位/免填)</option>
-                        {operatorsList.map(name => (
+                        {filteredOperators.map(name => (
                           <option key={name} value={name} className="bg-slate-900 text-slate-100">{name}</option>
                         ))}
                       </select>
@@ -1549,7 +1713,7 @@
                         className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-xl font-bold outline-none focus:border-emerald-500 transition-all text-slate-100"
                       >
                         <option value="">無 (無此崗位/免填)</option>
-                        {operatorsList.map(name => (
+                        {filteredOperators.map(name => (
                           <option key={name} value={name} className="bg-slate-900 text-slate-100">{name}</option>
                         ))}
                       </select>
@@ -1562,7 +1726,7 @@
                         className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-xl font-bold outline-none focus:border-emerald-500 transition-all text-slate-100"
                       >
                         <option value="">無 (無此崗位/免填)</option>
-                        {operatorsList.map(name => (
+                        {filteredOperators.map(name => (
                           <option key={name} value={name} className="bg-slate-900 text-slate-100">{name}</option>
                         ))}
                       </select>
