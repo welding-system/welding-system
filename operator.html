@@ -318,6 +318,14 @@
           setShiftTakenOutLog(s.shiftTakenOutLog || []);
           if (s.handoverLogs) setHandoverLogs(s.handoverLogs);
           setAppScreen('production');
+          // ★ 還原後重新送登入標記，讓 Dashboard 顯示生產中
+          setTimeout(() => {
+            if (s.lineInfo && s.lineInfo.name) {
+              fetch(API_URL, { method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ type:'operator_login', line: s.lineInfo.name, assembler: s.lineInfo.assembler || '' })
+              }).catch(()=>{});
+            }
+          }, 2000);
           console.log('✅ 已從本地存檔還原生產資料');
         } catch(e) { console.log('localStorage 還原失敗', e); }
       }, []); // 只在第一次載入執行
