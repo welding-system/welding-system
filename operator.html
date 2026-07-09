@@ -866,17 +866,12 @@
         else handleDefect(reason, 1);
       };
 
-      // ★ 送外待判：先計不良（備註標記待判中），同步登記到 Sheets 待判追蹤
+      // ★ 待判登記：先計不良，同步登記到 Sheets 待判追蹤
       const executeSendOutPending = () => {
-        const onLineQty = parseInt(sendOutQty) || 0;
-        const sampledQty = parseInt(sendOutSampledQty) || 0;
-        const totalQty = onLineQty + sampledQty;
+        const totalQty = parseInt(sendOutQty) || 0;
+        if (totalQty <= 0) { showToast('請填寫待判數量'); return; }
+        if (!sendOutReason.trim()) { showToast('請填寫待判原因'); return; }
 
-        if (totalQty <= 0) { showToast('請輸入留在線上數量或領走數量（至少一項要大於0）'); return; }
-        if (sampledQty > 0 && !sendOutSamplerName.trim()) { showToast('已填寫領走數量，請同時填寫領走人姓名'); return; }
-        if (!sendOutReason.trim()) { showToast('請填寫送外原因（如：熔接強度待確認）'); return; }
-
-        // 全部數量先計入不良（用「待判中-送外觀察」當分類，方便之後追蹤校正）
         handleDefect('待判中-送外觀察', totalQty);
 
         sendToAPI({
@@ -886,23 +881,17 @@
           color: lineInfo.color || "",
           batch: lineInfo.batch,
           registrant: lineInfo.inspector || lineInfo.assembler || '',
-          qty: totalQty,                     // ★ 總數量 = 線上 + 領走
-          sampledQty,                        // ★ 領走數量（登記當下就填）
-          samplerName: sendOutSamplerName.trim(), // ★ 領走人姓名
+          qty: totalQty,
+          sampledQty: 0,
+          samplerName: '',
           reason: sendOutReason.trim(),
           sendOutDate,
-          note: sampledQty > 0
-            ? `已先計入不良，待後製程確認結果（${sendOutSamplerName}已領走${sampledQty}支，線上留${onLineQty}支）`
-            : `已先計入不良，待後製程確認結果`,
+          note: `已先計入不良，待後製程確認結果`,
         });
 
-        const logSampleText = sampledQty > 0 ? `，${sendOutSamplerName}領走${sampledQty}支` : '';
-        if (sampledQty > 0) {
-          setShiftTakenOutLog(prev => [...prev, { name: sendOutSamplerName.trim(), qty: sampledQty }]);
-        }
-        addLog(`📤 送外待判登記：總計${totalQty} pcs（線上${onLineQty}${logSampleText}），原因：${sendOutReason}，送外日期：${sendOutDate}`, 'bg-purple-950/40 text-purple-400 border-purple-900/30');
-        showToast(`✅ 已登記 ${totalQty} pcs 送外待判，已先計入不良。所有線都能在「待判查詢」追蹤這筆。`);
-        setSendOutQty(''); setSendOutSampledQty(''); setSendOutSamplerName(''); setSendOutReason('');
+        addLog(`⏳ [待判登記] ${totalQty} pcs，原因：${sendOutReason}，日期：${sendOutDate}`, 'bg-purple-950/40 text-purple-400 border-purple-900/30');
+        showToast(`✅ 已登記 ${totalQty} pcs 待判，已先計入不良。`);
+        setSendOutQty(''); setSendOutReason('');
         setShowSendOutModal(false);
       };
 
@@ -1408,34 +1397,36 @@
                       {fleshyCount > 0 && <div className="absolute top-0 right-0 bg-amber-500 text-[10px] px-2 py-0.5 rounded-bl font-bold shadow-md">待:{fleshyCount}</div>}
                     </button>
                   </div>
-                  {/* 減量按鈕：開啟多肉回填 Modal */}
+                  {/* 減量按鈕 */}
+                  <button onClick={() => { handleGood(-1); }}
+                    className="h-12 shrink-0 rounded-xl bg-slate-800 text-emerald-500 hover:bg-slate-700 text-sm font-bold flex items-center justify-center gap-1 border border-slate-700 transition-colors active:bg-slate-900 shadow-sm">
+                    <i className="fa-solid fa-minus-circle"></i> 誤判-1
+                  </button>
                   <button onClick={() => { setFleshyGood(''); setFleshyBad(''); setFleshyWrong(''); setShowFleshyModal(true); }}
                     disabled={fleshyCount === 0}
                     className={`h-12 shrink-0 rounded-xl text-sm font-bold flex items-center justify-center gap-1 border transition-colors active:bg-slate-900 shadow-sm ${
                       fleshyCount > 0 ? 'bg-amber-950/40 text-amber-400 hover:bg-amber-900/60 border-amber-700/40' : 'bg-slate-800 text-slate-600 border-slate-700 cursor-not-allowed'
                     }`}>
-                    <i className="fa-solid fa-rotate-left"></i> 回填結果
+                    <i className="fa-solid fa-rotate-left"></i> 多肉回填
                   </button>
                 </div>
 
-                {/* 第二欄：送外待判（取代舊版當班快速待判，改為跨天送外觀察流程） */}
+                {/* 第二欄：待判登記 */}
                 <div className="flex flex-col gap-2 h-full">
                   <button 
                     onClick={() => {
-                      if (isMaterialExhausted) {
-                        showToast("⚠️ 目前已無剩餘未加工素材，無法新增送外待判！");
-                        return;
-                      }
+                      setSendOutQty(''); setSendOutReason(''); setSendOutDate(new Date().toISOString().slice(0,10));
                       setShowSendOutModal(true);
                     }} 
-                    className={`flex-1 rounded-2xl flex flex-col items-center justify-center gap-3 border relative transition-all active:scale-[0.98] shadow-md ${
-                      isMaterialExhausted 
-                        ? 'bg-slate-800/40 border-red-500/20 text-slate-500 cursor-not-allowed' 
-                        : 'bg-yellow-600 hover:bg-yellow-500 text-white border-yellow-500/50'
-                    }`}
+                    className="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white rounded-2xl flex flex-col items-center justify-center gap-3 border border-yellow-500/50 relative transition-all active:scale-[0.98] shadow-md"
                   >
-                    <i className={`fa-solid ${isMaterialExhausted ? 'fa-lock text-red-500/80' : 'fa-paper-plane'} text-4xl lg:text-5xl`}></i>
-                    <span className="text-2xl font-bold tracking-widest">{isMaterialExhausted ? '已鎖定' : '送外待判'}</span>
+                    <i className="fa-solid fa-hourglass-half text-4xl lg:text-5xl"></i>
+                    <span className="text-2xl font-bold tracking-widest">待判</span>
+                    {pendingCount > 0 && (
+                      <div className="absolute top-0 right-0 bg-red-500 text-[10px] px-2 py-0.5 rounded-bl font-bold shadow-md">
+                        待:{pendingCount}
+                      </div>
+                    )}
                   </button>
                   <button onClick={() => { setShowPendingQueryModal(true); fetchPendingList(pendingQueryFilter); }} className="h-12 bg-slate-800 text-cyan-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">
                     <i className="fa-solid fa-magnifying-glass mr-1.5"></i>待判查詢
@@ -2155,7 +2146,7 @@
                 <div className="flex justify-between items-center p-5 border-b border-slate-800">
                   <div>
                     <h3 className="text-xl font-bold text-purple-400 flex items-center gap-2">
-                      <i className="fa-solid fa-paper-plane"></i> 送外待判登記
+                      <i className="fa-solid fa-hourglass-half"></i> 待判登記
                     </h3>
                     <p className="text-slate-500 text-xs mt-0.5">全部先計入不良，待確認結果後可在「待判查詢」回填校正</p>
                   </div>
@@ -2164,26 +2155,9 @@
                   </button>
                 </div>
                 <div className="p-5 space-y-4">
-                  {/* QC/RD領走數量 + 姓名 */}
-                  <div className="bg-purple-950/20 border border-purple-800/40 rounded-xl p-3.5 space-y-3">
-                    <div className="text-purple-300 text-xs font-bold">QC/RD領走實驗品（選填，若有人現場帶走才填）</div>
-                    <div className="flex gap-2">
-                      <input type="text" value={sendOutSamplerName}
-                        onChange={e => setSendOutSamplerName(e.target.value)}
-                        placeholder="領走人姓名"
-                        className="flex-1 bg-slate-950 border border-purple-700/40 rounded-lg p-2.5 text-sm font-bold text-purple-200 outline-none focus:border-purple-500"
-                      />
-                      <input type="number" value={sendOutSampledQty}
-                        onChange={e => setSendOutSampledQty(e.target.value)}
-                        placeholder="領走數量"
-                        className="w-24 bg-slate-950 border border-purple-700/40 rounded-lg p-2.5 text-sm font-bold text-purple-200 outline-none focus:border-purple-500"
-                      />
-                    </div>
-                  </div>
-
-                  {/* 留在線上的數量 */}
+                  {/* 待判數量 */}
                   <div>
-                    <label className="block text-purple-400 text-xs mb-2 font-bold">留在線上待判數量 (pcs)</label>
+                    <label className="block text-purple-400 text-xs mb-2 font-bold">待判數量 (pcs)</label>
                     <input type="number" value={sendOutQty}
                       onChange={e => setSendOutQty(e.target.value)}
                       placeholder="0"
@@ -2191,19 +2165,8 @@
                     />
                   </div>
 
-                  {/* 總數量自動顯示 */}
-                  <div className="bg-slate-800/50 rounded-xl p-3 text-center text-sm">
-                    <span className="text-slate-500">本次送外待判總數量：</span>
-                    <span className="text-white font-bold text-lg ml-2">
-                      {(parseInt(sendOutQty)||0) + (parseInt(sendOutSampledQty)||0)} pcs
-                    </span>
-                    <span className="text-slate-500 text-xs ml-2">
-                      （領走 {parseInt(sendOutSampledQty)||0} + 線上 {parseInt(sendOutQty)||0}）
-                    </span>
-                  </div>
-
                   <div>
-                    <label className="block text-slate-400 text-xs mb-2 font-bold">送外原因</label>
+                    <label className="block text-slate-400 text-xs mb-2 font-bold">待判原因</label>
                     <input type="text" value={sendOutReason}
                       onChange={e => setSendOutReason(e.target.value)}
                       placeholder="例：熔接強度待確認"
@@ -2211,7 +2174,7 @@
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-400 text-xs mb-2 font-bold">送外日期</label>
+                    <label className="block text-slate-400 text-xs mb-2 font-bold">登記日期</label>
                     <input type="date" value={sendOutDate}
                       onChange={e => setSendOutDate(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-base font-bold text-slate-200 outline-none focus:border-purple-500"
@@ -2219,14 +2182,14 @@
                   </div>
                   <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 text-amber-300 text-xs">
                     <i className="fa-solid fa-circle-info mr-1.5"></i>
-                    全部數量會立即計入「不良」，分類為「待判中-送外觀察」。等確認結果後，到「待判查詢」找到這筆回填，系統會自動校正良率。
+                    數量會立即計入「不良」。等確認結果後，到「待判查詢」找到這筆回填，系統會自動校正良率。
                   </div>
                 </div>
                 <div className="p-5 border-t border-slate-800">
                   <button onClick={executeSendOutPending}
                     className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-4 rounded-xl text-lg transition-all active:scale-95"
                   >
-                    <i className="fa-solid fa-check mr-2"></i>確認送外登記
+                    <i className="fa-solid fa-check mr-2"></i>確認待判登記
                   </button>
                 </div>
               </div>
