@@ -229,7 +229,7 @@
       const [showHandoverModal, setShowHandoverModal] = useState(false);
       const [showLoginModal, setShowLoginModal] = useState(false);
 
-      const [nextShiftStaff, setNextShiftStaff] = useState({ assembler: '', machineOp: '', inspector: '', workerCount: '' });
+      const [nextShiftStaff, setNextShiftStaff] = useState({ assembler: '', machineOp: '', inspector: '', workerCount: '', line: '' });
       
       // 下班時同時結批
       const [handoverWithBatchClose, setHandoverWithBatchClose] = useState(false);
@@ -287,6 +287,11 @@
       // ★ 頁面載入時嘗試還原（重新整理後自動回到生產畫面）
       useEffect(() => {
         try {
+          // ★ 如果剛剛下班，不要還原
+          if (sessionStorage.getItem('just_logged_out')) {
+            sessionStorage.removeItem('just_logged_out');
+            return;
+          }
           const raw = localStorage.getItem(LS_KEY);
           if (!raw) return;
           const s = JSON.parse(raw);
@@ -743,19 +748,23 @@
         }
 
         setShowHandoverModal(false);
-        setNextShiftStaff({ assembler: '', machineOp: '', inspector: '' });
+        setNextShiftStaff({ assembler: '', machineOp: '', inspector: '', workerCount: '', line: lineInfo.name });
         // ★ 通知後端作業員已下班（Dashboard 清除生產中標記）
         sendToAPI({ type: 'operator_logout', line: lineInfo.name });
-        // ★ 下班完成，清除本地存檔（讓下一班從乾淨狀態開始）
-        try { localStorage.removeItem('welding_panel_state'); } catch(e) {}
+        // ★ 下班完成，清除本地存檔並設旗標防止立即還原
+        try {
+          localStorage.removeItem('welding_panel_state');
+          sessionStorage.setItem('just_logged_out', '1'); // ★ 旗標：這次不要還原
+        } catch(e) {}
         // 🌟 結算完成 → 回到「開班批次確認」畫面（而非完全重新登入），下一班只需確認人員 + 批次資訊
         setShowLoginModal(true);
       };
 
       // 執行接班人員登入 → 登入後一律進入換批設定畫面
       const executeShiftLogin = () => {
-        if (!lineInfo.name) {
-          showToast('請先選擇今天的生產線別！');
+        const selectedLine = nextShiftStaff.line || lineInfo.name;
+        if (!selectedLine) {
+          showToast('請先選擇生產線別！');
           return;
         }
         if (!nextShiftStaff.assembler && !nextShiftStaff.machineOp && !nextShiftStaff.inspector) {
@@ -768,19 +777,19 @@
 
         setLineInfo(prev => ({
           ...prev,
+          name: selectedLine,        // ★ 更新線別（可能換線了）
           assembler: finalAssembler,
           machineOp: finalMachineOp,
           inspector: finalInspector,
-          workerCount: nextShiftStaff.workerCount || '',  // ★ 加工人數
+          workerCount: nextShiftStaff.workerCount || '',
         }));
-        setShiftStartTime(new Date()); // ★ 記錄開班時間
-        // ★ 通知後端作業員已登入（Dashboard 顯示生產中）
-        sendToAPI({ type: 'operator_login', line: lineInfo.name, assembler: finalAssembler });
-        addLog(`🆕 接班登入：組裝:${finalAssembler} / 機台:${finalMachineOp} / 檢驗:${finalInspector}${nextShiftStaff.workerCount ? ` / 加工人數:${nextShiftStaff.workerCount}` : ''}`, 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30');
+        setShiftStartTime(new Date());
+        sendToAPI({ type: 'operator_login', line: selectedLine, assembler: finalAssembler });
+        addLog(`🆕 接班登入（${selectedLine}）：組裝:${finalAssembler} / 機台:${finalMachineOp} / 檢驗:${finalInspector}${nextShiftStaff.workerCount ? ` / 加工人數:${nextShiftStaff.workerCount}` : ''}`, 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30');
         setShowLoginModal(false);
         setHandoverWithBatchClose(false);
         setAppScreen('batch');
-        fetchCurrentBatch(); // 🌟 登入後自動查詢這條線目前的批次（主管分配）
+        fetchCurrentBatch();
       };
 
       // ★ 查詢這條線目前進行中的批次（主管在後台分配的）
@@ -1700,6 +1709,21 @@
                   </div>
 
                   <div className="space-y-4">
+                    {/* ★ 線別選擇（可換線） */}
+                    <div>
+                      <label className="block text-slate-400 text-xs mb-1.5 ml-1 font-bold">
+                        生產線別 <span className="text-emerald-400">（可換線）</span>
+                      </label>
+                      <select
+                        value={nextShiftStaff.line || lineInfo.name}
+                        onChange={e => setNextShiftStaff(p => ({...p, line: e.target.value}))}
+                        className="w-full bg-slate-950 border border-emerald-700/50 rounded-xl p-4 text-xl font-bold outline-none focus:border-emerald-500 transition-all text-emerald-300"
+                      >
+                        {['1號線','2號線','3號線','4號線','5號線','6號線','7號線','8號線'].map(l => (
+                          <option key={l} value={l} className="bg-slate-900">{l}</option>
+                        ))}
+                      </select>
+                    </div>
                     <div>
                       <label className="block text-slate-400 text-xs mb-1.5 ml-1 font-bold">組裝作業員</label>
                       <select 
