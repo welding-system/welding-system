@@ -151,7 +151,11 @@
       const [cumulativeIncomingOuter, setCumulativeIncomingOuter] = useState(0);
 
       const [defectDetails, setDefectDetails] = useState({});
-      const [fleshyCount, setFleshyCount] = useState(0); 
+      const [fleshyCount, setFleshyCount] = useState(0);
+      const [showFleshyModal, setShowFleshyModal] = useState(false); // ★ 多肉回填 Modal
+      const [fleshyGood, setFleshyGood]     = useState(''); // 加工成功良品數
+      const [fleshyBad, setFleshyBad]       = useState(''); // 加工後不良數
+      const [fleshyWrong, setFleshyWrong]   = useState(''); // 誤判數（計回良品）
       const [pendingDetails, setPendingDetails] = useState({});
       const [newPendingName, setNewPendingName] = useState('');
       const [pendingTargets, setPendingTargets] = useState({});
@@ -185,6 +189,13 @@
       const [shiftTakenOutLog, setShiftTakenOutLog] = useState([]);     // ★ 本班送外待判領走記錄 [{name, qty}]
       const [sendOutReason, setSendOutReason] = useState('');
       const [sendOutDate, setSendOutDate] = useState(() => new Date().toISOString().slice(0,10));
+
+      // ★ 領用不良品（已確定不良，只記錄去向，不影響任何計數）
+      const [showPickupModal, setShowPickupModal] = useState(false);
+      const [pickupName, setPickupName] = useState('');
+      const [pickupQty, setPickupQty] = useState('');
+      const [pickupReason, setPickupReason] = useState('');
+      const [pickupLog, setPickupLog] = useState([]);
       const [showPendingQueryModal, setShowPendingQueryModal] = useState(false);
       const [pendingQueryList, setPendingQueryList] = useState([]);
       const [pendingQueryLoading, setPendingQueryLoading] = useState(false);
@@ -724,6 +735,7 @@
         setInnerDiff(0);
         setOuterDiff(0);
         setShiftTakenOutLog([]); // 領走記錄清零
+        setPickupLog([]);        // 領用不良品記錄清零
         setStatus('running');
 
         if (handoverWithBatchClose) {
@@ -1396,8 +1408,14 @@
                       {fleshyCount > 0 && <div className="absolute top-0 right-0 bg-amber-500 text-[10px] px-2 py-0.5 rounded-bl font-bold shadow-md">待:{fleshyCount}</div>}
                     </button>
                   </div>
-                  {/* 減量按鈕：在任何時候都保持啟用，以便同仁糾錯歸還物料 */}
-                  <button onClick={() => { handleGood(-1); setFleshyCount(p => Math.max(0, p-1)); }} className="h-12 shrink-0 rounded-xl bg-slate-800 text-emerald-500 hover:bg-slate-700 text-sm font-bold flex items-center justify-center gap-1 border border-slate-700 transition-colors active:bg-slate-900 shadow-sm"><i className="fa-solid fa-minus-circle"></i> 誤判-1</button>
+                  {/* 減量按鈕：開啟多肉回填 Modal */}
+                  <button onClick={() => { setFleshyGood(''); setFleshyBad(''); setFleshyWrong(''); setShowFleshyModal(true); }}
+                    disabled={fleshyCount === 0}
+                    className={`h-12 shrink-0 rounded-xl text-sm font-bold flex items-center justify-center gap-1 border transition-colors active:bg-slate-900 shadow-sm ${
+                      fleshyCount > 0 ? 'bg-amber-950/40 text-amber-400 hover:bg-amber-900/60 border-amber-700/40' : 'bg-slate-800 text-slate-600 border-slate-700 cursor-not-allowed'
+                    }`}>
+                    <i className="fa-solid fa-rotate-left"></i> 回填結果
+                  </button>
                 </div>
 
                 {/* 第二欄：送外待判（取代舊版當班快速待判，改為跨天送外觀察流程） */}
@@ -1444,6 +1462,11 @@
                     <span className="text-2xl font-bold tracking-widest">{isMaterialExhausted ? '已鎖定' : '不良品'}</span>
                   </button>
                   <button onClick={() => setShowDefectModal(true)} className="h-12 bg-slate-800 text-red-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">管理明細</button>
+                  <button onClick={() => { setPickupName(''); setPickupQty(''); setPickupReason(''); setShowPickupModal(true); }}
+                    className="h-12 bg-slate-800 text-orange-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700 flex items-center justify-center gap-1.5">
+                    <i className="fa-solid fa-hand text-xs"></i>領用不良品
+                    {pickupLog.length > 0 && <span className="text-[10px] bg-orange-500 text-white rounded-full px-1.5 py-0.5">{pickupLog.length}</span>}
+                  </button>
                 </div>
 
                 {/* 第四欄：重工 */}
@@ -1598,6 +1621,28 @@
                       <p className="text-xl font-mono font-bold text-yellow-400">{pendingCount}</p>
                     </div>
                   </div>
+
+                  {/* ★ 領用不良品記錄 */}
+                  {pickupLog.length > 0 && (
+                    <div className="bg-orange-950/30 border border-orange-700/40 rounded-2xl p-4">
+                      <div className="text-orange-400 text-sm font-bold mb-2 flex items-center gap-2">
+                        <i className="fa-solid fa-hand"></i>
+                        本班領用不良品記錄（共 {pickupLog.reduce((s,r)=>s+r.qty,0)} 支）
+                      </div>
+                      <div className="space-y-1">
+                        {pickupLog.map((r,i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm">
+                            <span className="text-slate-500 text-xs w-4">{i+1}</span>
+                            <span className="text-slate-300">{r.name}</span>
+                            <span className="text-slate-500">領走</span>
+                            <span className="text-orange-400 font-bold num">{r.qty}</span>
+                            <span className="text-slate-500">支</span>
+                            <span className="text-slate-600 text-xs">｜{r.reason}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* ★ 送外待判領走記錄 */}
                   {shiftTakenOutLog.length > 0 && (
@@ -1786,16 +1831,12 @@
                 {fleshyCount > 0 && (
                   <div className="bg-amber-950/40 px-4 py-2 border-b border-amber-700/20 flex justify-between items-center shrink-0 text-xs md:text-sm">
                     <span className="font-bold text-amber-400 flex items-center gap-1.5">
-                      <i className="fa-solid fa-tools"></i> 待後加工多肉數: {fleshyCount}
+                      <i className="fa-solid fa-tools"></i> 待後加工多肉數: <span className="text-xl num">{fleshyCount}</span>
                     </span>
-                    <div className="flex gap-2">
-                      <button onClick={() => { if(fleshyCount > 0) setFleshyCount(p => p - 1); }} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded-lg font-bold text-xs shadow-sm">
-                        加工成功
-                      </button>
-                      <button onClick={() => { if(fleshyCount > 0 && goodCount > 0) { setGoodCount(p => p - 1); setFleshyCount(p => p - 1); handleDefect('多肉加工報廢', 1); } }} className="bg-orange-500 hover:bg-orange-400 text-white px-3 py-1 rounded-lg font-bold text-xs shadow-sm">
-                        轉不良 (扣良品)
-                      </button>
-                    </div>
+                    <button onClick={() => { setFleshyGood(''); setFleshyBad(''); setFleshyWrong(''); setShowFleshyModal(true); }}
+                      className="bg-amber-600 hover:bg-amber-500 text-white px-4 py-1.5 rounded-lg font-bold text-xs shadow-sm flex items-center gap-1.5">
+                      <i className="fa-solid fa-rotate-left"></i> 回填結果
+                    </button>
                   </div>
                 )}
 
@@ -1961,6 +2002,153 @@
           )}
 
           {/* ★ 送外待判登記 Modal */}
+          {/* ★ 多肉回填 Modal */}
+          {showFleshyModal && (
+            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+              <div className="bg-slate-900 border border-amber-700/50 rounded-3xl w-full max-w-sm shadow-2xl p-6 space-y-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <i className="fa-solid fa-tools text-amber-400 text-xl"></i>
+                  <h3 className="text-xl font-bold text-amber-400">多肉加工回填</h3>
+                </div>
+                <div className="bg-amber-950/30 border border-amber-700/30 rounded-xl px-4 py-2 text-center">
+                  <span className="text-slate-400 text-sm">待加工多肉總數：</span>
+                  <span className="text-amber-400 font-bold text-2xl num ml-2">{fleshyCount}</span>
+                  <span className="text-slate-500 text-sm"> 支</span>
+                </div>
+
+                {/* 三個輸入欄 */}
+                {[
+                  { label:'加工後良品', key:'good',  val:fleshyGood,  set:setFleshyGood,  color:'text-emerald-400', desc:'加工成功，計入良品' },
+                  { label:'加工後不良', key:'bad',   val:fleshyBad,   set:setFleshyBad,   color:'text-red-400',     desc:'加工失敗，計入不良' },
+                  { label:'誤判（計回良品）', key:'wrong', val:fleshyWrong, set:setFleshyWrong, color:'text-cyan-400', desc:'本來就不是多肉，計回良品' },
+                ].map(f => (
+                  <div key={f.key}>
+                    <label className="block text-slate-400 text-xs mb-1 font-bold">{f.label}</label>
+                    <p className="text-slate-600 text-[10px] mb-1.5">{f.desc}</p>
+                    <input type="number" min="0" max={fleshyCount} value={f.val}
+                      onChange={e => f.set(e.target.value)}
+                      placeholder="0"
+                      className={`w-full bg-slate-950 border border-slate-700 rounded-xl p-3 outline-none focus:border-amber-500 text-xl font-bold num ${f.color}`}/>
+                  </div>
+                ))}
+
+                {/* 防呆提示 */}
+                {(() => {
+                  const g = parseInt(fleshyGood)||0, b = parseInt(fleshyBad)||0, w = parseInt(fleshyWrong)||0;
+                  const total = g + b + w;
+                  if (total > fleshyCount) return (
+                    <div className="bg-red-950/40 border border-red-700/40 rounded-xl p-3 text-red-400 text-xs font-bold text-center">
+                      ⚠️ 總數 {total} 超過待加工多肉數 {fleshyCount}，請重新填寫
+                    </div>
+                  );
+                  if (total > 0) return (
+                    <div className="bg-slate-800/50 rounded-xl p-3 text-slate-400 text-xs text-center">
+                      回填 {total} 支（剩餘 {fleshyCount - total} 支繼續加工）
+                    </div>
+                  );
+                  return null;
+                })()}
+
+                <div className="flex gap-3 pt-1">
+                  <button onClick={() => setShowFleshyModal(false)}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold py-3 rounded-xl">
+                    取消
+                  </button>
+                  <button onClick={() => {
+                    const g = parseInt(fleshyGood)||0;
+                    const b = parseInt(fleshyBad)||0;
+                    const w = parseInt(fleshyWrong)||0;
+                    const total = g + b + w;
+                    if (total === 0) { showToast('請至少填寫一項數量'); return; }
+                    if (total > fleshyCount) { showToast(`⚠️ 總數不能超過 ${fleshyCount}`); return; }
+                    // 加工後良品：扣掉多肉的良品數（多肉本來是算良品），不用再加（已算過了）
+                    // 誤判：計回良品，不用調整（本來就算良品）
+                    // 加工後不良：扣除良品數，加入不良
+                    if (b > 0) {
+                      setGoodCount(p => Math.max(0, p - b));
+                      handleDefect('多肉加工報廢', b);
+                    }
+                    setFleshyCount(p => Math.max(0, p - total));
+                    const parts = [];
+                    if (g > 0) parts.push(`良品 ${g} 支`);
+                    if (b > 0) parts.push(`不良 ${b} 支`);
+                    if (w > 0) parts.push(`誤判 ${w} 支`);
+                    addLog(`🔧 [多肉回填] ${parts.join('、')}，剩餘 ${fleshyCount - total} 支待加工`, 'bg-amber-950/40 text-amber-400 border-amber-900/30');
+                    showToast(`✅ 多肉回填完成：${parts.join('、')}`);
+                    setShowFleshyModal(false);
+                  }} className="flex-1 bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 rounded-xl active:scale-95">
+                    <i className="fa-solid fa-check mr-1.5"></i>確認回填
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ★ 領用不良品 Modal */}
+          {showPickupModal && (
+            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+              <div className="bg-slate-900 border border-orange-700/50 rounded-3xl w-full max-w-sm shadow-2xl p-6 space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <i className="fa-solid fa-hand text-orange-400 text-xl"></i>
+                  <h3 className="text-xl font-bold text-orange-400">領用不良品</h3>
+                </div>
+                <p className="text-slate-500 text-xs">記錄已確定不良品的領用去向，不影響待判數量，僅做記錄用途。</p>
+
+                <div>
+                  <label className="block text-slate-400 text-xs mb-1.5 font-bold">領用人</label>
+                  <input type="text" value={pickupName} onChange={e=>setPickupName(e.target.value)}
+                    placeholder="輸入領用人姓名"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500"/>
+                </div>
+                <div>
+                  <label className="block text-slate-400 text-xs mb-1.5 font-bold">領用數量</label>
+                  <input type="number" min="1" value={pickupQty} onChange={e=>setPickupQty(e.target.value)}
+                    placeholder="0"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500 text-xl font-bold"/>
+                </div>
+                <div>
+                  <label className="block text-slate-400 text-xs mb-1.5 font-bold">領用原因</label>
+                  <input type="text" value={pickupReason} onChange={e=>setPickupReason(e.target.value)}
+                    placeholder="如：維修分析、品質確認..."
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-orange-500"/>
+                </div>
+
+                {/* 本班已領用記錄 */}
+                {pickupLog.length > 0 && (
+                  <div className="bg-orange-950/30 border border-orange-800/40 rounded-xl p-3">
+                    <div className="text-orange-400 text-xs font-bold mb-2">本班領用記錄（共 {pickupLog.reduce((s,r)=>s+r.qty,0)} 支）</div>
+                    {pickupLog.map((r,i) => (
+                      <div key={i} className="text-xs text-slate-400 flex gap-2">
+                        <span>{r.name}</span>
+                        <span className="text-orange-400 font-bold">{r.qty}支</span>
+                        <span className="text-slate-600">{r.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-2">
+                  <button onClick={() => setShowPickupModal(false)}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold py-3 rounded-xl transition-all">
+                    取消
+                  </button>
+                  <button onClick={() => {
+                    const qty = parseInt(pickupQty);
+                    if (!pickupName.trim()) { showToast('請填寫領用人'); return; }
+                    if (!qty || qty <= 0) { showToast('請填寫領用數量'); return; }
+                    const record = { name: pickupName.trim(), qty, reason: pickupReason.trim() || '未填原因' };
+                    setPickupLog(prev => [...prev, record]);
+                    addLog(`🤚 [領用不良品] ${record.name} 領走 ${record.qty} 支，原因：${record.reason}`, 'bg-orange-950/40 text-orange-400 border-orange-900/30');
+                    showToast(`✅ 已記錄：${record.name} 領走 ${record.qty} 支`);
+                    setPickupName(''); setPickupQty(''); setPickupReason('');
+                  }} className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold py-3 rounded-xl transition-all active:scale-95">
+                    <i className="fa-solid fa-check mr-1.5"></i>確認記錄
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {showSendOutModal && (
             <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
               <div className="bg-slate-900 border border-purple-500 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
