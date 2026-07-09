@@ -537,20 +537,15 @@
         if (appScreen !== 'production') return;
         const check = () => {
           const m = new Date().getMinutes();
-          // 每30分鐘整（0分或30分）後的第1分鐘觸發
           if (m !== 1 && m !== 31) return;
-          const totalSec = Object.values(statusDurations).reduce((s,v)=>s+v, 0);
-          const activeSec  = statusDurations.running    || 0;
-          const tuneSec    = (statusDurations.setup_lc || 0) + (statusDurations.setup_fb || 0) + (statusDurations.setup_sb || 0);
-          const pauseSec   = statusDurations.error      || 0;
-          const idleSec    = statusDurations.idle       || 0;
+          // ★ 用 liveOEE 的數值（含當前正在進行的時間）
           sendToAPI({
             type: 'machine_log',
             line: lineInfo.name,
-            activeMinutes: Math.round(activeSec / 60),
-            tuneMinutes:   Math.round(tuneSec   / 60),
-            pauseMinutes:  Math.round(pauseSec  / 60),
-            idleMinutes:   Math.round(idleSec   / 60),
+            activeMinutes: liveOEE.runningMin,
+            tuneMinutes:   liveOEE.setupMin,
+            pauseMinutes:  liveOEE.pauseMin,
+            idleMinutes:   0,
             input:   totalInput,
             rework:  reworkCount,
             pauseReason: '',
@@ -560,7 +555,7 @@
         };
         const t = setInterval(check, 60000);
         return () => clearInterval(t);
-      }, [appScreen, lineInfo, statusDurations, totalInput, reworkCount]);
+      }, [appScreen, lineInfo, liveOEE, totalInput, reworkCount]);
 
       // --- 核心日誌函數 ---
       const addLog = (text, customStyle = null) => {
