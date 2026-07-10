@@ -148,6 +148,12 @@
       const [showReworkRefillModal, setShowReworkRefillModal] = useState(false);
       const [reworkRefillGood, setReworkRefillGood] = useState('');
       const [reworkRefillBad, setReworkRefillBad] = useState('');
+      const [reworkIds, setReworkIds] = useState([]);
+      // ★ 重工登記小視窗
+      const [showReworkEntryModal, setShowReworkEntryModal] = useState(false);
+      const [reworkEntryQty, setReworkEntryQty] = useState('1');
+      const [reworkEntryLocations, setReworkEntryLocations] = useState([]);
+      const [reworkEntryNote, setReworkEntryNote] = useState('');
       
       const [faiCount, setFaiCount] = useState(0);
       const [batchFaiCount, setBatchFaiCount] = useState(0);
@@ -479,8 +485,7 @@
           return;
         }
         setReworkDetails(p => ({ ...p, [location]: Math.max(0, (p[location] || 0) + d) }));
-        // ★ 重工 +1 時累計待回填數
-        if (d > 0) setPendingRework(p => p + 1);
+        // ★ -1 時減少待回填數（+1 由登記小視窗處理）
         if (d < 0) setPendingRework(p => Math.max(0, p - 1));
       };
 
@@ -755,6 +760,7 @@
         setShiftTakenOutLog([]); // 領走記錄清零
         setPickupLog([]);        // 領用不良品記錄清零
         setPendingRework(0);     // 待回填重工清零
+        setReworkIds([]);        // 重工ID清零
         setStatus('running');
 
         if (handoverWithBatchClose) {
@@ -1474,14 +1480,6 @@
                     }`}>
                     <i className="fa-solid fa-rotate-left"></i> 多肉回填
                   </button>
-                  <button onClick={() => { setReworkRefillGood(''); setReworkRefillBad(''); setShowReworkRefillModal(true); }}
-                    disabled={pendingRework === 0}
-                    className={`h-12 shrink-0 rounded-xl text-sm font-bold flex items-center justify-center gap-1 border transition-colors active:bg-slate-900 shadow-sm relative ${
-                      pendingRework > 0 ? 'bg-blue-950/40 text-blue-400 hover:bg-blue-900/60 border-blue-700/40' : 'bg-slate-800 text-slate-600 border-slate-700 cursor-not-allowed'
-                    }`}>
-                    <i className="fa-solid fa-rotate"></i> 重工回填
-                    {pendingRework > 0 && <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{pendingRework}</span>}
-                  </button>
                 </div>
 
                 {/* 第二欄：待判登記 */}
@@ -1543,6 +1541,14 @@
                     <span className="text-2xl font-bold tracking-widest">重工件</span>
                   </button>
                   <button onClick={() => setShowReworkModal(true)} className="h-12 bg-slate-800 text-orange-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">管理明細</button>
+                  <button onClick={() => { setReworkRefillGood(''); setReworkRefillBad(''); setShowReworkRefillModal(true); }}
+                    disabled={pendingRework === 0}
+                    className={`h-12 rounded-xl text-sm font-bold flex items-center justify-center gap-1.5 border transition-colors relative ${
+                      pendingRework > 0 ? 'bg-blue-950/40 text-blue-400 hover:bg-blue-900/60 border-blue-700/40' : 'bg-slate-800 text-slate-600 border-slate-700 cursor-not-allowed'
+                    }`}>
+                    <i className="fa-solid fa-rotate"></i> 重工回填
+                    {pendingRework > 0 && <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{pendingRework}</span>}
+                  </button>
                 </div>
 
                 {/* 第五欄：物料餘量與自動盤點對帳 */}
@@ -2218,6 +2224,90 @@
             </div>
           )}
 
+          {/* ★ 重工登記小視窗 */}
+          {showReworkEntryModal && (
+            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[140] p-4">
+              <div className="bg-slate-900 border border-orange-500/50 rounded-3xl w-full max-w-sm shadow-2xl p-6 space-y-4">
+                <div className="flex items-center gap-2">
+                  <i className="fa-solid fa-rotate text-orange-400 text-xl"></i>
+                  <h3 className="text-xl font-bold text-orange-400">重工登記</h3>
+                </div>
+
+                {/* 數量 */}
+                <div>
+                  <label className="block text-slate-400 text-xs mb-1.5 font-bold">重工數量</label>
+                  <input type="number" min="1" value={reworkEntryQty}
+                    onChange={e => setReworkEntryQty(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-3xl font-bold num text-orange-400 outline-none focus:border-orange-500 text-center"/>
+                </div>
+
+                {/* 位置複選 */}
+                <div>
+                  <label className="block text-slate-400 text-xs mb-2 font-bold">重工位置（可複選）</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {['正面','背面','側邊','底部'].map(loc => (
+                      <button key={loc}
+                        onClick={() => setReworkEntryLocations(prev =>
+                          prev.includes(loc) ? prev.filter(l=>l!==loc) : [...prev, loc]
+                        )}
+                        className={`py-2.5 rounded-xl font-bold text-sm border transition-all ${
+                          reworkEntryLocations.includes(loc)
+                            ? 'bg-orange-600 text-white border-orange-500'
+                            : 'bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700'
+                        }`}>
+                        {loc}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 備註（選填） */}
+                <div>
+                  <label className="block text-slate-400 text-xs mb-1.5 font-bold">備註（選填）</label>
+                  <input type="text" value={reworkEntryNote}
+                    onChange={e => setReworkEntryNote(e.target.value)}
+                    placeholder="如：正面+背面同一支"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:border-orange-500"/>
+                </div>
+
+                <div className="flex gap-3 pt-1">
+                  <button onClick={() => setShowReworkEntryModal(false)}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold py-3 rounded-xl">
+                    取消
+                  </button>
+                  <button onClick={() => {
+                    const qty = parseInt(reworkEntryQty) || 1;
+                    if (qty <= 0) { showToast('數量必須大於0'); return; }
+                    // ★ 每個選取的位置都加計數
+                    const locs = reworkEntryLocations.length > 0 ? reworkEntryLocations : ['未指定'];
+                    locs.forEach(loc => {
+                      if (['正面','背面','側邊','底部'].includes(loc)) {
+                        setReworkDetails(p => ({...p, [loc]: (p[loc]||0) + qty}));
+                      }
+                    });
+                    setPendingRework(p => p + qty);
+                    // 送後端
+                    const locStr = locs.join('、');
+                    sendToAPI({
+                      type: 'rework_register',
+                      line: lineInfo.name, model: lineInfo.model, color: lineInfo.color||'',
+                      batch: lineInfo.batch, location: locStr, qty,
+                      assembler: lineInfo.assembler, shift: shiftInfo.shortName,
+                      note: reworkEntryNote,
+                    }).then(res => {
+                      if (res && res.reworkId) setReworkIds(prev => [...prev, res.reworkId]);
+                    }).catch(() => {});
+                    addLog(`🔄 重工登記：${locStr} × ${qty} 支${reworkEntryNote ? '（'+reworkEntryNote+'）' : ''}`, 'bg-orange-950/40 text-orange-400 border-orange-900/30');
+                    showToast(`✅ 已登記重工 ${qty} 支`);
+                    setShowReworkEntryModal(false);
+                  }} className="flex-1 bg-orange-600 hover:bg-orange-500 text-white font-bold py-3 rounded-xl active:scale-95">
+                    <i className="fa-solid fa-check mr-1.5"></i>確認登記
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ★ 重工回填 Modal */}
           {showReworkRefillModal && (
             <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
@@ -2279,8 +2369,12 @@
                     if (total === 0) { showToast('請至少填寫一項數量'); return; }
                     if (total > pendingRework) { showToast(`⚠️ 總數不能超過 ${pendingRework}`); return; }
                     if (g > 0) setGoodCount(p => p + g); // 重工成功 → 計入良品
-                    // 重工失敗不需要再計不良（按重工時已計入不良了）
+                    if (b > 0) handleDefect('重工不良', b); // ★ 重工失敗 → 計入製程不良
                     setPendingRework(p => Math.max(0, p - total));
+                    // ★ 送後端記錄回填結果
+                    const idsToResolve = reworkIds.slice(0, total);
+                    sendToAPI({ type:'rework_resolve', reworkIds: idsToResolve, good:g, bad:b, assembler: lineInfo.assembler });
+                    setReworkIds(prev => prev.slice(total));
                     const parts = [];
                     if (g > 0) parts.push(`良品 ${g} 支`);
                     if (b > 0) parts.push(`不良 ${b} 支`);
@@ -3102,7 +3196,12 @@
                       <div className="flex items-center justify-between w-full bg-slate-950 p-2 rounded-xl border border-slate-600 shadow-inner">
                         <button onClick={() => handleRework(location, -1)} className="w-10 h-10 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white text-xl font-bold flex items-center justify-center">-</button>
                         <span className="text-2xl font-mono font-bold text-orange-400 w-12 text-center">{reworkDetails[location] || 0}</span>
-                        <button onClick={() => handleRework(location, 1)} className="w-10 h-10 rounded-lg bg-orange-600 text-white hover:bg-orange-500 text-xl font-bold border border-orange-400/20 shadow flex items-center justify-center">+</button>
+                        <button onClick={() => {
+                          setReworkEntryLocations([location]);
+                          setReworkEntryQty('1');
+                          setReworkEntryNote('');
+                          setShowReworkEntryModal(true);
+                        }} className="w-10 h-10 rounded-lg bg-orange-600 text-white hover:bg-orange-500 text-xl font-bold border border-orange-400/20 shadow flex items-center justify-center">+</button>
                       </div>
                     </div>
                   ))}
