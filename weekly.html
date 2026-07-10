@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -25,7 +26,7 @@ const { useState, useEffect, useMemo } = React;
 const API_URL = "https://script.google.com/macros/s/AKfycbxITB84zMMmsoA85EysG_OnOdW8U7yoCLihJlCE-SRC4FX_9Y1JfOdET7fLp9ga0yUUQw/exec";
 const LINES = ['1號線','2號線','3號線','4號線','5號線','6號線','7號線','8號線'];
 const LINE_COLORS = ['#34d399','#60a5fa','#f59e0b','#f472b6','#a78bfa','#22d3ee','#fb923c','#86efac'];
-const DEFECT_LABELS = ["熔接不良(正)","熔接不良(反)","熔接不良(側)","熔接不良(底)","損傷","組裝不良","機台操作不當","調機不良","髒污","按鈕對位","相機鍵異常","異色點","鏟傷多肉","其他"];
+const DEFECT_LABELS = ["熔接不良(正)","熔接不良(反)","熔接不良(側)","熔接不良(底)","損傷","組裝不良","機台操作不當","髒污","按鈕對位","相機鍵異常","異色點","鏟傷多肉","其他"];
 
 function getLastWeekRange() {
   const now = new Date(), dow = now.getDay(), dm = dow===0?6:dow-1;
@@ -169,12 +170,12 @@ function LineCard({ line, lineColor, weldRows, machRows, target, onClick }) {
         {/* 左欄：線別 + 良率 */}
         <div className="px-4 py-3 border-r border-slate-800 flex items-center gap-4">
           <div>
-            <div className="text-white font-bold text-base mb-0.5">{line}</div>
-            <div className="num font-bold text-3xl leading-none" style={{color:yrC}}>{d.yr}%</div>
-            <div className="text-slate-600 text-[10px] mt-1.5">
-              良品 <span className="text-slate-300 num font-bold">{d.good.toLocaleString()}</span>
-              <span className="mx-1">/</span>
-              投入 <span className="num">{d.input.toLocaleString()}</span>
+            <div className="text-white font-bold text-xl mb-0.5">{line}</div>
+            <div className="num font-bold text-4xl leading-none" style={{color:yrC}}>{d.yr}%</div>
+            <div className="text-slate-500 text-xs mt-1.5">
+              良品 <span className="text-slate-200 num font-bold text-sm">{d.good.toLocaleString()}</span>
+              <span className="mx-1 text-slate-600">/</span>
+              投入 <span className="num text-slate-300 text-sm">{d.input.toLocaleString()}</span>
             </div>
           </div>
           <div className="flex-1">
@@ -183,12 +184,12 @@ function LineCard({ line, lineColor, weldRows, machRows, target, onClick }) {
             </div>
             <div className="grid grid-cols-2 gap-1">
               <div className="text-center">
-                <div className="text-slate-600 text-[9px]">稼動率</div>
-                <div className="num font-bold text-sm text-cyan-400">{d.oee}%</div>
+                <div className="text-slate-500 text-xs">稼動率</div>
+                <div className="num font-bold text-xl text-cyan-400">{d.oee}%</div>
               </div>
               <div className="text-center">
-                <div className="text-slate-600 text-[9px]">達成率</div>
-                <div className="num font-bold text-sm" style={{color:d.ar>=90?'#10b981':d.ar>=70?'#f59e0b':'#ef4444'}}>
+                <div className="text-slate-500 text-xs">達成率</div>
+                <div className="num font-bold text-xl" style={{color:d.ar>=90?'#10b981':d.ar>=70?'#f59e0b':'#ef4444'}}>
                   {target>0 ? d.ar+'%' : '—'}
                 </div>
               </div>
@@ -198,37 +199,40 @@ function LineCard({ line, lineColor, weldRows, machRows, target, onClick }) {
 
         {/* 中欄：稼動條 + 數字 */}
         <div className="px-4 py-3 border-r border-slate-800 flex flex-col justify-center">
-          <div className="text-slate-500 text-[9px] mb-1.5">稼動分布 <span className="num text-slate-400">{Math.round(d.activeMin)}分鐘</span></div>
-          <div className="flex h-2 bg-slate-800 rounded-full overflow-hidden mb-2">
+          <div className="text-slate-500 text-xs mb-1.5">稼動分布 <span className="num text-slate-300 font-bold">{Math.round(d.activeMin)}分鐘</span></div>
+          <div className="flex h-2.5 bg-slate-800 overflow-hidden mb-2" style={{borderRadius:'4px'}}>
             {d.totalMin > 0 && <>
               <div className="h-full bg-emerald-500" style={{width:(d.activeMin/d.totalMin*100)+'%'}}></div>
               <div className="h-full bg-blue-500"    style={{width:(d.tuneMin/d.totalMin*100)+'%'}}></div>
               <div className="h-full bg-red-500"     style={{width:(d.stopMin/d.totalMin*100)+'%'}}></div>
             </>}
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-4 mb-3">
             {[
               {color:'bg-emerald-500',label:'稼動',val:Math.round(d.activeMin)},
               {color:'bg-blue-500',   label:'調機',val:Math.round(d.tuneMin)},
               {color:'bg-red-500',    label:'停機',val:Math.round(d.stopMin)},
             ].map(s=>(
               <div key={s.label} className="flex items-center gap-1">
-                <div className={`w-1.5 h-1.5 rounded-sm shrink-0 ${s.color}`}></div>
-                <span className="text-slate-600 text-[9px]">{s.label}</span>
-                <span className="num text-slate-400 text-[9px] font-bold">{s.val}m</span>
+                <div className={`w-2 h-2 rounded-sm shrink-0 ${s.color}`}></div>
+                <span className="text-slate-400 text-xs">{s.label}</span>
+                <span className="num text-slate-300 text-xs font-bold">{s.val}m</span>
               </div>
             ))}
           </div>
           {target > 0 && (
-            <div className="mt-2">
-              <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+            <div className="mt-1">
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-slate-500">達成率進度</span>
+                <span className="num font-bold text-sm" style={{color:d.ar>=90?'#10b981':d.ar>=70?'#f59e0b':'#ef4444'}}>{d.ar}%</span>
+              </div>
+              <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
                 <div className="h-full rounded-full" style={{
                   width:Math.min(100,d.ar)+'%',
                   backgroundColor:d.ar>=90?'#10b981':d.ar>=70?'#f59e0b':'#ef4444',
                   transition:'width 0.8s'
                 }}></div>
               </div>
-              <div className="text-slate-600 text-[9px] mt-0.5">達成率進度</div>
             </div>
           )}
         </div>
