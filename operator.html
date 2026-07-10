@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -123,7 +122,9 @@
           data: JSON.stringify(payload)
         });
         const res = await fetch(`${API_URL}?${params}`);
-        return await res.json();
+        const result = await res.json();
+        console.log('sendToAPIWithResponse result:', payload.type, result);
+        return result;
       } catch(e) { console.warn("送出失敗:", e); return null; }
     }
     function getCurrentPeriod() {
