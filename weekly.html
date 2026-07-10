@@ -63,7 +63,7 @@ function calcLine(weldRows, machRows, target) {
   }));
   const totalNg = Object.values(defectMap).reduce((s,v)=>s+v,0);
   const top3 = Object.entries(defectMap).sort((a,b)=>b[1]-a[1]).slice(0,3);
-  return { input, good, defect, rework, yr, rr, ar, oee, activeMin, tuneMin, stopMin, totalMin, top3, totalNg };
+  return { input, good, defect, rework, yr, rr, ar, oee, activeMin, tuneMin, stopMin, totalMin, top3, totalNg, defectMap };
 }
 
 // 線別詳細視窗
