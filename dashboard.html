@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -32,7 +33,7 @@ const { useState, useEffect, useCallback, useRef } = React;
 const API_URL  = "https://script.google.com/macros/s/AKfycbxITB84zMMmsoA85EysG_OnOdW8U7yoCLihJlCE-SRC4FX_9Y1JfOdET7fLp9ga0yUUQw/exec";
 const LINES    = ['1號線','2號線','3號線','4號線','5號線','6號線','7號線','8號線'];
 const REFRESH_INTERVAL = 5 * 60 * 1000;
-const DEFECT_LABELS = ["熔接不良(正)","熔接不良(反)","熔接不良(側)","熔接不良(底)","損傷","組裝不良","機台操作不當","調機不良","髒污","按鈕對位","相機鍵異常","異色點","鏟傷多肉","其他"];
+const DEFECT_LABELS = ["熔接不良(正)","熔接不良(反)","熔接不良(側)","熔接不良(底)","損傷","組裝不良","機台操作不當","髒污","按鈕對位","相機鍵異常","異色點","鏟傷多肉","其他"];
 
 function todayStr() {
   return new Date().toLocaleDateString('zh-TW',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\//g,'-');
