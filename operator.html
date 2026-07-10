@@ -115,10 +115,14 @@
       } catch(e) { console.warn("送出失敗:", e); }
     }
 
-    // ★ 需要回傳值的 API 呼叫（不用 no-cors）
+    // ★ 需要回傳值的 API 呼叫（用 GET + 參數，避免 CORS 問題）
     async function sendToAPIWithResponse(payload) {
       try {
-        const res = await fetch(API_URL, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload) });
+        const params = new URLSearchParams({
+          action: 'post_with_response',
+          data: JSON.stringify(payload)
+        });
+        const res = await fetch(`${API_URL}?${params}`);
         return await res.json();
       } catch(e) { console.warn("送出失敗:", e); return null; }
     }
@@ -2214,7 +2218,7 @@
                       const g = parseInt(form.good)||0, b = parseInt(form.bad)||0, w = parseInt(form.wrong)||0;
                       if (g+b+w === 0) continue; // 跳過沒填的
                       if (g+b+w > item.qty) { hasError = true; break; }
-                      await sendToAPI({ type:'fleshy_resolve', fleshyId: item.fleshyId, good:g, bad:b, wrong:w });
+                      await sendToAPIWithResponse({ type:'fleshy_resolve', fleshyId: item.fleshyId, good:g, bad:b, wrong:w });
                     }
                     if (hasError) { showToast('⚠️ 有欄位超過數量，請檢查'); return; }
                     // 移除已回填的
