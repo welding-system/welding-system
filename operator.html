@@ -114,6 +114,14 @@
         await fetch(API_URL, { method:"POST", mode:"no-cors", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload) });
       } catch(e) { console.warn("送出失敗:", e); }
     }
+
+    // ★ 需要回傳值的 API 呼叫（不用 no-cors）
+    async function sendToAPIWithResponse(payload) {
+      try {
+        const res = await fetch(API_URL, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload) });
+        return await res.json();
+      } catch(e) { console.warn("送出失敗:", e); return null; }
+    }
     function getCurrentPeriod() {
       const now = new Date(), h = now.getHours();
       return `${String(h).padStart(2,'0')}:00-${String(h+1).padStart(2,'0')}:00`;
@@ -2288,7 +2296,8 @@
                     setPendingRework(p => p + qty);
                     // 送後端
                     const locStr = locs.join('、');
-                    sendToAPI({
+                    // ★ 用有回傳值的 API，才能收到 reworkId
+                    sendToAPIWithResponse({
                       type: 'rework_register',
                       line: lineInfo.name, model: lineInfo.model, color: lineInfo.color||'',
                       batch: lineInfo.batch, location: locStr, qty,
@@ -2373,7 +2382,7 @@
                     setPendingRework(p => Math.max(0, p - total));
                     // ★ 送後端記錄回填結果
                     const idsToResolve = reworkIds.slice(0, total);
-                    sendToAPI({ type:'rework_resolve', reworkIds: idsToResolve, good:g, bad:b, assembler: lineInfo.assembler });
+                    sendToAPIWithResponse({ type:'rework_resolve', reworkIds: idsToResolve, good:g, bad:b, assembler: lineInfo.assembler });
                     setReworkIds(prev => prev.slice(total));
                     const parts = [];
                     if (g > 0) parts.push(`良品 ${g} 支`);
