@@ -281,6 +281,29 @@ function App() {
   const [error, setError] = useState('');
   const [selectedLine, setSelectedLine] = useState(null);
 
+  // ★ 重工分析頁籤
+  const [activeTab, setActiveTab] = useState('weekly'); // 'weekly' | 'rework'
+  const [reworkFrom, setReworkFrom] = useState(defFrom);
+  const [reworkTo, setReworkTo]     = useState(defTo);
+  const [reworkLine, setReworkLine] = useState('');
+  const [reworkItems, setReworkItems]   = useState([]);
+  const [reworkSummary, setReworkSummary] = useState([]);
+  const [reworkLoading, setReworkLoading] = useState(false);
+
+  const fetchReworkData = async () => {
+    setReworkLoading(true);
+    try {
+      const params = new URLSearchParams({ action:'rework_list', from:reworkFrom, to:reworkTo });
+      if (reworkLine) params.append('line', reworkLine);
+      const data = await fetch(`${API_URL}?${params}`).then(r=>r.json());
+      if (data.status==='ok') {
+        setReworkItems(data.items||[]);
+        setReworkSummary(data.summary||[]);
+      }
+    } catch(e) {}
+    setReworkLoading(false);
+  };
+
   const fetchData = async (from, to) => {
     setLoading(true); setError('');
     try {
@@ -369,6 +392,120 @@ function App() {
         </a>
       </div>
 
+      {/* ★ 頁籤切換 */}
+      <div className="flex gap-2 mb-4 border-b border-slate-800 pb-3">
+        <button onClick={() => setActiveTab('weekly')}
+          className={`px-5 py-2 rounded-xl text-sm font-bold transition-all ${activeTab==='weekly' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>
+          <i className="fa-solid fa-chart-line mr-1.5"></i>週報彙整
+        </button>
+        <button onClick={() => { setActiveTab('rework'); fetchReworkData(); }}
+          className={`px-5 py-2 rounded-xl text-sm font-bold transition-all ${activeTab==='rework' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>
+          <i className="fa-solid fa-rotate mr-1.5"></i>重工分析
+        </button>
+      </div>
+
+      {/* ★ 重工分析頁面 */}
+      {activeTab === 'rework' && (
+        <div className="space-y-4">
+          {/* 篩選列 */}
+          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-3 flex flex-wrap items-center gap-2">
+            <select value={reworkLine} onChange={e => setReworkLine(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-white outline-none">
+              <option value="">全部線別</option>
+              {LINES.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+            <input type="date" value={reworkFrom} onChange={e => setReworkFrom(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-white outline-none"/>
+            <span className="text-slate-600">～</span>
+            <input type="date" value={reworkTo} onChange={e => setReworkTo(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-white outline-none"/>
+            <button onClick={fetchReworkData}
+              className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-1.5 rounded-xl text-sm">
+              {reworkLoading ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-magnifying-glass"></i>}
+            </button>
+          </div>
+
+          {/* 彙整統計卡片 */}
+          {!reworkLoading && reworkSummary.length > 0 && (() => {
+            const total = reworkSummary.reduce((s,r) => s + r.totalRework, 0);
+            const good  = reworkSummary.reduce((s,r) => s + r.totalGood, 0);
+            const bad   = reworkSummary.reduce((s,r) => s + r.totalBad, 0);
+            const rate  = total > 0 ? (good/total*100).toFixed(1) : '—';
+            const badRate = total > 0 ? (bad/total*100).toFixed(1) : '—';
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  {label:'總重工數',    val:total,           unit:'支', color:'text-amber-400'},
+                  {label:'重工後良品',  val:good,            unit:'支', color:'text-emerald-400'},
+                  {label:'重工後不良',  val:bad,             unit:'支', color:'text-red-400'},
+                  {label:'重工良品率',  val:rate+'%',        unit:'',   color: Number(rate)>=80?'text-emerald-400':Number(rate)>=60?'text-amber-400':'text-red-400'},
+                ].map(s=>(
+                  <div key={s.label} className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+                    <div className="text-slate-500 text-xs mb-2">{s.label}</div>
+                    <div className={`num font-bold text-3xl ${s.color}`}>{s.val}</div>
+                    {s.unit && <div className="text-slate-600 text-xs mt-1">{s.unit}</div>}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {reworkLoading && <div className="text-center py-8 text-slate-500"><i className="fa-solid fa-spinner fa-spin mr-2"></i>載入中...</div>}
+          {!reworkLoading && reworkSummary.length === 0 && (
+            <div className="text-center py-12 text-slate-600"><i className="fa-solid fa-rotate text-3xl mb-3 block"></i>此區間無重工記錄</div>
+          )}
+
+          {/* 各班彙整明細 */}
+          {!reworkLoading && reworkSummary.length > 0 && (
+            <div className="bg-slate-900/70 border border-slate-800 rounded-2xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-800/50">
+                    {['日期','班別','線別','總重工','良品','不良','良品率','不良率','各位置明細'].map(h=>(
+                      <th key={h} className="p-3 text-left text-slate-400 font-bold text-xs">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {reworkSummary.sort((a,b)=>b.date.localeCompare(a.date)).map((r,i)=>{
+                    const goodRate = r.totalRework>0 ? (r.totalGood/r.totalRework*100).toFixed(1) : '—';
+                    const badRate  = r.totalRework>0 ? (r.totalBad/r.totalRework*100).toFixed(1)  : '—';
+                    const rateColor = Number(goodRate)>=80?'text-emerald-400':Number(goodRate)>=60?'text-amber-400':'text-red-400';
+                    return (
+                      <tr key={i} className="border-t border-slate-800 hover:bg-slate-800/30">
+                        <td className="p-3 text-slate-300">{r.date}</td>
+                        <td className="p-3 text-slate-300">{r.shift}</td>
+                        <td className="p-3 text-white font-bold">{r.line}</td>
+                        <td className="p-3 text-amber-400 num font-bold">{r.totalRework}</td>
+                        <td className="p-3 text-emerald-400 num font-bold">{r.totalGood}</td>
+                        <td className="p-3 text-red-400 num font-bold">{r.totalBad}</td>
+                        <td className="p-3"><span className={`num font-bold ${rateColor}`}>{goodRate}{goodRate!=='—'?'%':''}</span></td>
+                        <td className="p-3"><span className="num text-red-400">{badRate}{badRate!=='—'?'%':''}</span></td>
+                        <td className="p-3">
+                          <div className="flex flex-wrap gap-1">
+                            {Object.entries(r.byLocation||{}).map(([loc,d])=>(
+                              <div key={loc} className="text-[10px] bg-slate-800 rounded-lg px-2 py-1">
+                                <span className="text-slate-400">{loc}</span>
+                                <span className="text-slate-300 ml-1">{d.qty}支</span>
+                                <span className="text-emerald-400 ml-1">良{d.good}</span>
+                                <span className="text-red-400 ml-1">不良{d.bad}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 週報內容 */}
+      {activeTab === 'weekly' && <>
+
       {/* 日期區間 */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-3 mb-4 flex flex-wrap items-center gap-2">
         {['本週','上週','本月','上月'].map(l=>(
@@ -427,6 +564,7 @@ function App() {
           ))}
         </div>
       )}
+      </>}
     </div>
   );
 }
