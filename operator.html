@@ -703,7 +703,7 @@
             fetch(API_URL, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ type: "batch_close", batchId: currentBatchId, closer: lineInfo.inspector || lineInfo.assembler || '', note: "作業員端結批" }),
+              body: JSON.stringify({ type: "batch_close", batchId: currentBatchId, closer: lineInfo.inspector || lineInfo.assembler || '', note: "作業員端結批", pendingFleshyCount: fleshyCount }),
             })
               .then(res => res.json())
               .then(result => {
@@ -713,7 +713,7 @@
               })
               .catch(() => {
                 // CORS或網路問題時，改用 no-cors 確保至少結批動作有送達
-                sendToAPI({ type: "batch_close", batchId: currentBatchId, closer: lineInfo.inspector || lineInfo.assembler || '', note: "作業員端結批(fallback)" });
+                sendToAPI({ type: "batch_close", batchId: currentBatchId, closer: lineInfo.inspector || lineInfo.assembler || '', note: "作業員端結批(fallback)", pendingFleshyCount: fleshyCount });
               });
           }
         }
@@ -1569,6 +1569,19 @@
                   <button onClick={() => setShowHandoverModal(false)} className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm font-bold px-3 py-2 rounded-xl hover:bg-slate-800 transition-all"><i className="fa-solid fa-arrow-left"></i> 返回</button>
                 </div>
                 <div className="p-8 space-y-6 text-left">
+                  {/* ★ 結批完成橫幅（勾選結批才顯示） */}
+                  {handoverWithBatchClose && (
+                    <div className="bg-emerald-500/20 border-2 border-emerald-500 rounded-2xl p-4 flex items-center gap-4">
+                      <div className="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center shrink-0">
+                        <i className="fa-solid fa-check text-white text-2xl"></i>
+                      </div>
+                      <div>
+                        <div className="text-emerald-400 font-bold text-xl">✅ 結批完成！</div>
+                        <div className="text-slate-400 text-sm mt-0.5">本批次已結批，下方為本班次最終數據，請核對後送出下班。</div>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="bg-red-500/10 p-4 rounded-xl border border-red-500/20 text-center">
                     <p className="text-slate-300 font-bold text-base">即將結束本班次工作，請核對最終生產、領料與首件數據：</p>
                   </div>
@@ -1711,6 +1724,15 @@
                     <span className="text-amber-300 font-bold">如需恢復可由主管後台取消結批。</span>
                   </p>
                 </div>
+
+                {/* ★ 多肉未回填警示 */}
+                {fleshyCount > 0 && (
+                  <div className="bg-orange-950/50 border-2 border-orange-500 rounded-xl p-4 text-center">
+                    <i className="fa-solid fa-triangle-exclamation text-orange-400 text-2xl mb-2 block"></i>
+                    <div className="text-orange-400 font-bold text-lg">⚠️ 尚有 {fleshyCount} 支多肉未回填！</div>
+                    <div className="text-slate-400 text-xs mt-1">結批後主管後台將顯示此筆待確認數量，成品數量有待調整。</div>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <button onClick={() => setShowBatchCloseConfirm(false)}
                     className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition-all"
