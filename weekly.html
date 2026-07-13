@@ -54,8 +54,7 @@ function calcLine(weldRows, machRows, target) {
   const activeMin = machRows.reduce((s,r)=>s+Number(r[4]||0),0);
   const tuneMin   = machRows.reduce((s,r)=>s+Number(r[5]||0),0);
   const stopMin   = machRows.reduce((s,r)=>s+Number(r[6]||0),0);
-  const idleMin   = machRows.reduce((s,r)=>s+Number(r[12]||0),0);
-  const totalMin  = activeMin+tuneMin+stopMin+idleMin;
+  const totalMin  = activeMin+tuneMin+stopMin;
   const oee = totalMin>0 ? +(activeMin/totalMin*100).toFixed(1) : 0;
   const defectMap = {};
   rows.forEach(r => DEFECT_LABELS.forEach((lbl,i) => {
