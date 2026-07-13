@@ -172,20 +172,21 @@ function App() {
       LINES.forEach(line => {
         const batch = allBatches.find(b=>b.line===line&&(b.status==='進行中'||b.status==='暫停中'))||null;
         const allLineRows = weldRows.filter(r=>r[3]===line&&r[30]!=='待判校正');
-        const normalRows = allLineRows.filter(r=>r[30]!=='重工校正');
-        const sorted = [...normalRows].sort((a,b)=>new Date(b[0])-new Date(a[0]));
-        const currentShift = sorted.length>0 ? sorted[0][2] : null;
-
-        // ★ 只取當班最新一筆（累計數字）
-        const shiftRows = currentShift ? sorted.filter(r=>r[2]===currentShift) : [];
-        const latestRow = shiftRows.length > 0 ? shiftRows[0] : null;
-        // ★ 重工校正的良品加總（當班）
+        // ★ 正常報工（排除所有校正類型）
+        const CORRECTION_TYPES = ['重工校正','多肉校正','待判校正'];
+        const normalRows = allLineRows.filter(r=>!CORRECTION_TYPES.includes(r[30]));
+        const sortedNormal = [...normalRows].sort((a,b)=>new Date(b[0])-new Date(a[0]));
+        const currentShift = sortedNormal.length>0 ? sortedNormal[0][2] : null;
+        // ★ 取當班最新一筆正常報工
+        const shiftNormal = currentShift ? sortedNormal.filter(r=>r[2]===currentShift) : sortedNormal;
+        const latestRow = shiftNormal.length > 0 ? shiftNormal[0] : null;
+        // ★ 重工校正良品加總（當班）
         const reworkBonus = allLineRows
-          .filter(r=>r[30]==='重工校正' && r[2]===currentShift)
+          .filter(r=>r[30]==='重工校正' && (!currentShift || r[2]===currentShift))
           .reduce((s,r)=>s+(r[11]||0), 0);
         const todayRows = latestRow ? [{
           input:  latestRow[10]||0,
-          good:   (latestRow[11]||0) + reworkBonus, // ★ 加上重工回填良品
+          good:   (latestRow[11]||0) + reworkBonus,
           defect: latestRow[12]||0,
           rework: latestRow[13]||0,
           defectDetails: Array.from({length:13},(_,i)=>latestRow[14+i]||0),
