@@ -189,10 +189,9 @@ function App() {
         const activeMin = todayMach.reduce((s,r)=>s+Number(r[4]||0),0);
         const tuneMin   = todayMach.reduce((s,r)=>s+Number(r[5]||0),0);
         const stopMin   = todayMach.reduce((s,r)=>s+Number(r[6]||0),0);
-        const idleMin   = todayMach.reduce((s,r)=>s+Number(r[12]||0),0);
-        const totalMin  = activeMin+tuneMin+stopMin+idleMin;
+        const totalMin  = activeMin+tuneMin+stopMin;
         result[line] = { batch, todayRows, currentShift,
-          machData:{ activeMin, tuneMin, stopMin, idleMin, oeeRate: totalMin>0?+(activeMin/totalMin*100).toFixed(1):0 }
+          machData:{ activeMin, tuneMin, stopMin, oeeRate: totalMin>0?+(activeMin/totalMin*100).toFixed(1):0 }
         };
       });
       setLineData(result);
