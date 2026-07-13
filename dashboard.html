@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -171,18 +172,23 @@ function App() {
       LINES.forEach(line => {
         const batch = allBatches.find(b=>b.line===line&&(b.status==='進行中'||b.status==='暫停中'))||null;
         const allLineRows = weldRows.filter(r=>r[3]===line&&r[30]!=='待判校正');
-        const sorted = [...allLineRows].sort((a,b)=>new Date(b[0])-new Date(a[0]));
+        const normalRows = allLineRows.filter(r=>r[30]!=='重工校正');
+        const sorted = [...normalRows].sort((a,b)=>new Date(b[0])-new Date(a[0]));
         const currentShift = sorted.length>0 ? sorted[0][2] : null;
 
-        // ★ 只取當班最新一筆（累計數字），不加總
+        // ★ 只取當班最新一筆（累計數字）
         const shiftRows = currentShift ? sorted.filter(r=>r[2]===currentShift) : [];
         const latestRow = shiftRows.length > 0 ? shiftRows[0] : null;
+        // ★ 重工校正的良品加總（當班）
+        const reworkBonus = allLineRows
+          .filter(r=>r[30]==='重工校正' && r[2]===currentShift)
+          .reduce((s,r)=>s+(r[11]||0), 0);
         const todayRows = latestRow ? [{
           input:  latestRow[10]||0,
-          good:   latestRow[11]||0,
+          good:   (latestRow[11]||0) + reworkBonus, // ★ 加上重工回填良品
           defect: latestRow[12]||0,
           rework: latestRow[13]||0,
-          defectDetails: Array.from({length:14},(_,i)=>latestRow[14+i]||0),
+          defectDetails: Array.from({length:13},(_,i)=>latestRow[14+i]||0),
         }] : [];
         const todayMach = machRows.filter(r=>r[3]===line);
         const activeMin = todayMach.reduce((s,r)=>s+Number(r[4]||0),0);
