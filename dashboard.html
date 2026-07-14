@@ -50,7 +50,7 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
   const batch = data?.batch;
   const currentShift = data?.currentShift;
   const weldRows = data?.todayRows || [];
-  const fleshy = data?.fleshy || { pending:0, resolvedGood:0, resolvedBad:0 };
+  const fleshy = data?.fleshy || { pending:0 };
 
   const input  = weldRows.reduce((s,r)=>s+(r.input||0),0);
   const good   = weldRows.reduce((s,r)=>s+(r.good||0),0);
@@ -70,6 +70,7 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
   const totalNg = Object.values(defectMap).reduce((s,v)=>s+v,0);
 
   // ★ 狀態判斷
+  const machineStatus = data?.machineStatus || 'running';
   const isIdle = !batch || !isOnline;
   let statusLabel, statusBg, borderColor, glowClass, rowBg;
   if (!batch) {
@@ -80,6 +81,10 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
     statusLabel='待機'; statusBg='text-slate-400'; borderColor='#475569'; glowClass=''; rowBg='bg-slate-900/50';
   } else if (batch?.batchStatus==='暫停中') {
     statusLabel='暫停'; statusBg='text-orange-400'; borderColor='#f97316'; glowClass='glow-amber'; rowBg='bg-orange-950/20';
+  } else if (machineStatus === 'error') {
+    statusLabel='停線'; statusBg='text-red-400'; borderColor='#ef4444'; glowClass='glow-red'; rowBg='bg-red-950/20';
+  } else if (machineStatus === 'setup_lc' || machineStatus === 'setup_fb' || machineStatus === 'setup_sb') {
+    statusLabel='調機中'; statusBg='text-blue-400'; borderColor='#60a5fa'; glowClass=''; rowBg='bg-blue-950/20';
   } else if (Number(yr)<80 && input>0) {
     statusLabel='生產中'; statusBg='text-red-400'; borderColor='#ef4444'; glowClass='glow-red'; rowBg='bg-red-950/20';
   } else if (Number(yr)<90 && input>0) {
@@ -218,7 +223,8 @@ function App() {
         const totalMin  = activeMin+tuneMin+stopMin;
         result[line] = { batch, todayRows, currentShift,
           machData:{ activeMin, tuneMin, stopMin, oeeRate: totalMin>0?+(activeMin/totalMin*100).toFixed(1):0 },
-          fleshy: fleshyMap[line] || { pending:0, resolvedGood:0, resolvedBad:0, resolvedWrong:0 },
+          fleshy: fleshyMap[line] || { pending:0 },
+          machineStatus: online[line]?.machineStatus || 'running', // ★ 機台狀態
         };
       });
       setLineData(result);
