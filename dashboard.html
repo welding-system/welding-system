@@ -50,6 +50,7 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
   const batch = data?.batch;
   const currentShift = data?.currentShift;
   const weldRows = data?.todayRows || [];
+  const fleshy = data?.fleshy || { pending:0, resolvedGood:0, resolvedBad:0 };
 
   const input  = weldRows.reduce((s,r)=>s+(r.input||0),0);
   const good   = weldRows.reduce((s,r)=>s+(r.good||0),0);
@@ -59,7 +60,7 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
   const tuneMin = machData?.tuneMin || 0;
 
   const yr = input>0 ? (good/input*100).toFixed(1) : '0.0';
-  const ar = target>0 ? (good/target*100).toFixed(1) : '—';
+  const ar = target>0 ? (input/target*100).toFixed(1) : '—';  // ★ 當班投入 ÷ 目標
   const oee = machData?.oeeRate ?? 0;
   const rr  = input>0 ? (rework/input*100).toFixed(1) : '0.0';
 
@@ -140,6 +141,17 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
           </div>
         ))}
       </div>
+      {/* ★ 多肉統計 */}
+      {(fleshy.pending > 0 || fleshy.resolvedGood > 0 || fleshy.resolvedBad > 0) && (
+        <div className="flex items-center gap-3 px-3 border-l border-slate-800 shrink-0">
+          <div className="text-slate-500 text-xs font-bold mb-0.5">多肉</div>
+          <div className="flex flex-col gap-0.5 text-xs">
+            {fleshy.pending > 0 && <span className="text-amber-400 font-bold">待回填 {fleshy.pending}</span>}
+            {fleshy.resolvedGood > 0 && <span className="text-emerald-400">已回填良品 {fleshy.resolvedGood}</span>}
+            {fleshy.resolvedBad  > 0 && <span className="text-red-400">已回填不良 {fleshy.resolvedBad}</span>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -156,16 +168,18 @@ function App() {
     setLoading(true);
     try {
       const today = todayStr();
-      const [weldRes, machRes, batchRes, onlineRes] = await Promise.all([
+      const [weldRes, machRes, batchRes, onlineRes, fleshyRes] = await Promise.all([
         fetch(`${API_URL}?action=weld_log_range&from=${today}&to=${today}`).then(r=>r.json()),
         fetch(`${API_URL}?action=machine_log_range&from=${today}&to=${today}`).then(r=>r.json()),
         fetch(`${API_URL}?action=batch_all`).then(r=>r.json()),
         fetch(`${API_URL}?action=online_status`).then(r=>r.json()),
+        fetch(`${API_URL}?action=fleshy_summary`).then(r=>r.json()),
       ]);
-      const weldRows   = weldRes.status==='ok'   ? weldRes.rows     : [];
-      const machRows   = machRes.status==='ok'   ? machRes.rows     : [];
-      const allBatches = batchRes.status==='ok'  ? batchRes.batches : [];
-      const online     = onlineRes.status==='ok' ? onlineRes.onlineMap : {};
+      const weldRows    = weldRes.status==='ok'    ? weldRes.rows        : [];
+      const machRows    = machRes.status==='ok'    ? machRes.rows        : [];
+      const allBatches  = batchRes.status==='ok'   ? batchRes.batches    : [];
+      const online      = onlineRes.status==='ok'  ? onlineRes.onlineMap : {};
+      const fleshyMap   = fleshyRes.status==='ok'  ? fleshyRes.summary   : {};
       setOnlineMap(online);
 
       const result = {};
@@ -197,7 +211,8 @@ function App() {
         const stopMin   = todayMach.reduce((s,r)=>s+Number(r[6]||0),0);
         const totalMin  = activeMin+tuneMin+stopMin;
         result[line] = { batch, todayRows, currentShift,
-          machData:{ activeMin, tuneMin, stopMin, oeeRate: totalMin>0?+(activeMin/totalMin*100).toFixed(1):0 }
+          machData:{ activeMin, tuneMin, stopMin, oeeRate: totalMin>0?+(activeMin/totalMin*100).toFixed(1):0 },
+          fleshy: fleshyMap[line] || { pending:0, resolvedGood:0, resolvedBad:0, resolvedWrong:0 },
         };
       });
       setLineData(result);
