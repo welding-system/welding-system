@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -385,7 +386,7 @@
       // ★ 良率 = 良品 ÷ (良品 + 不良)，多肉和待判不計入，回填後才算
       const currentYield = (goodCount + totalDefect) === 0 ? 0 : (goodCount / (goodCount + totalDefect) * 100).toFixed(1);
       // ★ 報工投入 = 良品 + 不良（不含多肉和待判，等回填後才計）
-      const reportInput = goodCount + totalDefect;
+      const reportInput = goodCount + totalDefect + fleshyCount; // ★ 投入含多肉
 
       // ★ 即時稼動率：累計各狀態秒數 + 目前狀態正在進行的秒數（每秒重新計算，靠 currentTime 觸發重渲染）
       const liveOEE = useMemo(() => {
