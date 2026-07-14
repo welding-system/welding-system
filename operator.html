@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -794,20 +795,6 @@
 
         setShowHandoverModal(false);
         setNextShiftStaff({ assembler: '', machineOp: '', inspector: '', workerCount: '', line: lineInfo.name });
-        // ★ 下班時如果有未回填多肉，自動登記到後端
-        if (fleshyCount > 0) {
-          sendToAPI({
-            type: 'fleshy_register',
-            line: lineInfo.name,
-            model: lineInfo.model,
-            color: lineInfo.color || '',
-            batch: lineInfo.batch || '',
-            qty: fleshyCount,
-            shift: shiftInfo.shortName,
-            assembler: lineInfo.assembler || '',
-            note: `下班時未回填（${shiftInfo.shortName}）`,
-          });
-        }
         // ★ 通知後端作業員已下班（Dashboard 清除生產中標記）
         sendToAPI({ type: 'operator_logout', line: lineInfo.name });
         // ★ 下班完成，清除本地存檔並設旗標防止立即還原
