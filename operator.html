@@ -659,25 +659,28 @@
           setShowPauseModal(true);
         } else {
           const oldLabel = statusDisplay[status].label;
-          const settledDurations = settleCurrentStatusDuration(); // ★ 先結算剛剛那個狀態經過的時間
-          const elapsedSec = settledDurations[status] - (statusDurations[status] || 0); // 本次新增的秒數
+          const settledDurations = settleCurrentStatusDuration();
+          const elapsedSec = settledDurations[status] - (statusDurations[status] || 0);
           setStatus(newStatus);
           setCurrentPauseReason('');
           if (status !== newStatus) {
             const minutesText = elapsedSec >= 60 ? `${Math.floor(elapsedSec/60)}分${elapsedSec%60}秒` : `${elapsedSec}秒`;
             addLog(`🔄 狀態切換：[${oldLabel}] 持續${minutesText} → 轉為 [${statusDisplay[newStatus].label}]`);
+            // ★ 通知後端機台狀態
+            sendToAPI({ type: 'machine_status', line: lineInfo.name, machineStatus: newStatus });
           }
         }
       };
 
       const applyPauseReason = (reason) => {
-        const elapsedSec = settleCurrentStatusDuration(); // ★ 結算上一個狀態的時間
+        const elapsedSec = settleCurrentStatusDuration();
         setStatus('error');
         setCurrentPauseReason(reason);
         setShowPauseModal(false);
-        // 記錄異常暫停原因到清單（之後結報時可彙整呈現）
         setPauseReasonLog(prev => [...prev, { reason, startTime: Date.now(), endTime: null }]);
         addLog(`⚠️ 異常停機：${reason}`, 'bg-red-500/20 text-red-400 border-red-500/30');
+        // ★ 通知後端機台狀態
+        sendToAPI({ type: 'machine_status', line: lineInfo.name, machineStatus: 'error' });
       };
 
       // 🌟 執行下班流程：跨班遞補核心機制
