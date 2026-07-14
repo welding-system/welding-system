@@ -69,11 +69,13 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
   const top3 = Object.entries(defectMap).sort((a,b)=>b[1]-a[1]).slice(0,3);
   const totalNg = Object.values(defectMap).reduce((s,v)=>s+v,0);
 
-  // ★ 狀態判斷：isOnline 才算「生產中」，沒登入只顯示「待機」
+  // ★ 狀態判斷
   const isIdle = !batch || !isOnline;
   let statusLabel, statusBg, borderColor, glowClass, rowBg;
   if (!batch) {
     statusLabel='閒置'; statusBg='text-slate-500'; borderColor='#334155'; glowClass=''; rowBg='bg-slate-900/30';
+  } else if (!isOnline && input > 0) {
+    statusLabel='已下班'; statusBg='text-slate-400'; borderColor='#475569'; glowClass=''; rowBg='bg-slate-900/50';
   } else if (!isOnline) {
     statusLabel='待機'; statusBg='text-slate-400'; borderColor='#475569'; glowClass=''; rowBg='bg-slate-900/50';
   } else if (batch?.batchStatus==='暫停中') {
@@ -141,14 +143,13 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
           </div>
         ))}
       </div>
-      {/* ★ 多肉統計 */}
-      {(fleshy.pending > 0 || fleshy.resolvedGood > 0 || fleshy.resolvedBad > 0) && (
-        <div className="flex items-center gap-3 px-3 border-l border-slate-800 shrink-0">
-          <div className="text-slate-500 text-xs font-bold mb-0.5">多肉</div>
-          <div className="flex flex-col gap-0.5 text-xs">
-            {fleshy.pending > 0 && <span className="text-amber-400 font-bold">待回填 {fleshy.pending}</span>}
-            {fleshy.resolvedGood > 0 && <span className="text-emerald-400">已回填良品 {fleshy.resolvedGood}</span>}
-            {fleshy.resolvedBad  > 0 && <span className="text-red-400">已回填不良 {fleshy.resolvedBad}</span>}
+      {/* ★ 多肉待回填 */}
+      {fleshy.pending > 0 && (
+        <div className="flex items-center gap-2 px-3 border-l border-slate-800 shrink-0">
+          <i className="fa-solid fa-triangle-exclamation text-amber-400 text-sm"></i>
+          <div className="text-center">
+            <div className="text-amber-400 font-bold text-2xl num">{fleshy.pending}</div>
+            <div className="text-slate-500 text-[10px]">多肉待回填</div>
           </div>
         </div>
       )}
@@ -186,15 +187,20 @@ function App() {
       LINES.forEach(line => {
         const batch = allBatches.find(b=>b.line===line&&(b.status==='進行中'||b.status==='暫停中'))||null;
         const allLineRows = weldRows.filter(r=>r[3]===line&&r[30]!=='待判校正');
-        // ★ 正常報工（排除所有校正類型）
         const CORRECTION_TYPES = ['重工校正','多肉校正','待判校正'];
         const normalRows = allLineRows.filter(r=>!CORRECTION_TYPES.includes(r[30]));
         const sortedNormal = [...normalRows].sort((a,b)=>new Date(b[0])-new Date(a[0]));
-        const currentShift = sortedNormal.length>0 ? sortedNormal[0][2] : null;
-        // ★ 取當班最新一筆正常報工
+
+        const isOnlineNow = !!(online[line] && online[line].assembler);
+        // ★ 有人在線時用在線班別，沒人在線時從最新報工推算（顯示已下班數字）
+        const onlineShift = online[line]?.shift || null;
+        const currentShift = isOnlineNow && onlineShift
+          ? onlineShift
+          : (sortedNormal.length>0 ? sortedNormal[0][2] : null);
+
+        // ★ 有人在線且班別切換時 → 只取新班次的資料（舊班次數字不顯示）
         const shiftNormal = currentShift ? sortedNormal.filter(r=>r[2]===currentShift) : sortedNormal;
         const latestRow = shiftNormal.length > 0 ? shiftNormal[0] : null;
-        // ★ 重工校正良品加總（當班）
         const reworkBonus = allLineRows
           .filter(r=>r[30]==='重工校正' && (!currentShift || r[2]===currentShift))
           .reduce((s,r)=>s+(r[11]||0), 0);
@@ -300,7 +306,7 @@ function App() {
             lineColor={['#34d399','#60a5fa','#f59e0b','#f472b6','#a78bfa','#22d3ee','#fb923c','#86efac'][i]}
             data={lineData[line]}
             machData={lineData[line]?.machData}
-            isOnline={!!onlineMap[line]}
+            isOnline={!!(onlineMap[line] && onlineMap[line].assembler)}
           />
         ))}
       </div>
