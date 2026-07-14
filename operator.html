@@ -566,15 +566,19 @@
       };
       useEffect(() => { fetchOperatorsList(); }, []);
 
-      // --- 每小時自動送出報工 ---
+      // --- 每30分鐘自動送出報工 ---
       useEffect(() => {
         if (appScreen !== 'production') return;
         const check = () => {
-          if (new Date().getMinutes() !== 1) return;
+          const m = new Date().getMinutes();
+          if (m !== 1 && m !== 31) return; // ★ 整點+1分 或 半點+1分
           const h = new Date().getHours();
-          const period = `${String(h-1<0?23:h-1).padStart(2,'0')}:00-${String(h).padStart(2,'0')}:00`;
+          const isHalf = m === 31;
+          const period = isHalf
+            ? `${String(h).padStart(2,'0')}:00-${String(h).padStart(2,'0')}:30`
+            : `${String(h-1<0?23:h-1).padStart(2,'0')}:30-${String(h).padStart(2,'0')}:00`;
           const pendingNote = pendingCount > 0 ? `【注意：尚有${pendingCount}個待判未處理】` : "";
-          sendToAPI({ type:"weld_report", line:lineInfo.name, assembler:lineInfo.assembler, machineOp:lineInfo.machineOp, inspector:lineInfo.inspector, model:lineInfo.model, color:lineInfo.color||"", batch:lineInfo.batch, input:reportInput, good:goodCount, defect:totalDefect, rework:reworkCount, defectDetails, incomingInnerDefect, incomingOuterDefect, faiCount, fleshyCount, note:"每小時自動回報"+pendingNote, period });
+          sendToAPI({ type:"weld_report", line:lineInfo.name, assembler:lineInfo.assembler, machineOp:lineInfo.machineOp, inspector:lineInfo.inspector, model:lineInfo.model, color:lineInfo.color||"", batch:lineInfo.batch, input:reportInput, good:goodCount, defect:totalDefect, rework:reworkCount, defectDetails, incomingInnerDefect, incomingOuterDefect, faiCount, fleshyCount, note:"每30分鐘自動回報"+pendingNote, period });
         };
         const t = setInterval(check, 60000);
         return () => clearInterval(t);
