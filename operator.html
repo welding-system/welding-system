@@ -830,7 +830,7 @@
           workerCount: nextShiftStaff.workerCount || '',
         }));
         setShiftStartTime(new Date());
-        sendToAPI({ type: 'operator_login', line: selectedLine, assembler: finalAssembler });
+        sendToAPI({ type: 'operator_login', line: selectedLine, assembler: finalAssembler, shift: shiftInfo.shortName });
         // ★ 查詢這條線是否有跨班待回填多肉
         fetchInheritedFleshy(selectedLine);
         addLog(`🆕 接班登入（${selectedLine}）：組裝:${finalAssembler} / 機台:${finalMachineOp} / 檢驗:${finalInspector}${nextShiftStaff.workerCount ? ` / 加工人數:${nextShiftStaff.workerCount}` : ''}`, 'bg-emerald-950/40 text-emerald-400 border-emerald-900/30');
