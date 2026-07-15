@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -598,10 +597,10 @@
             tuneMinutes:   liveOEE.setupMin,
             pauseMinutes:  liveOEE.pauseMin,
             idleMinutes:   0,
-            input:   totalInput,
-            rework:  reworkCount,
-            pauseReason: '',
-            tuneReason:  '',
+            inputCount:  totalInput,   // ★ 對應後端 data.inputCount
+            reworkCount: reworkCount,  // ★ 對應後端 data.reworkCount
+            pauseHistory: pauseReasonLog,
+            tuneHistory:  tuneReasonLog || [],
             note: '每30分鐘自動回報',
           });
         };
