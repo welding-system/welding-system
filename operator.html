@@ -1036,7 +1036,7 @@
       if (showNextBatchConfirm) {
         const nb = showNextBatchConfirm;
         return (
-          <div className="h-screen w-screen bg-slate-950 flex items-center justify-center p-6 text-slate-100">
+          <div style={{height:"100dvh"}} className="w-screen bg-slate-950 flex items-center justify-center p-6 text-slate-100 overflow-y-auto">
             <div className="bg-slate-900 border border-amber-500 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden">
               <div className="bg-amber-600/20 border-b border-amber-500/30 p-6 text-center">
                 <i className="fa-solid fa-forward text-4xl text-amber-400 mb-3 block"></i>
@@ -1077,7 +1077,7 @@
       // ── 接班登入全螢幕畫面 ──────────────────────────────────
       if (appScreen === 'login') {
         return (
-          <div className="min-h-screen w-screen bg-slate-950 flex items-start justify-center p-4 py-6 text-slate-100 overflow-y-auto">
+          <div style={{height:'100dvh'}} className="w-screen bg-slate-950 flex items-start justify-center p-4 py-6 text-slate-100 overflow-y-auto">
             <div className="bg-slate-900 border border-emerald-500 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden">
               <div className="bg-emerald-600/20 border-b border-emerald-500/30 p-4 text-center">
                 <i className="fa-solid fa-wave-square text-3xl text-emerald-400 mb-2 block"></i>
@@ -1180,7 +1180,7 @@
       // ── 換批設定全螢幕畫面 ──────────────────────────────────
       if (appScreen === 'batch') {
         return (
-          <div className="h-screen w-screen bg-slate-950 flex items-center justify-center p-4 text-slate-100">
+          <div style={{height:"100dvh"}} className="w-screen bg-slate-950 flex items-center justify-center p-4 text-slate-100 overflow-y-auto">
             <div className="bg-slate-900 border border-blue-500 rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden">
               <div className="bg-blue-600/20 border-b border-blue-500/30 p-5 flex items-center gap-3">
                 <i className="fa-solid fa-arrows-rotate text-blue-400 text-2xl"></i>
@@ -1337,8 +1337,8 @@
               </div>
             </div>
 
-            {/* 🌟 中間：生產型號與目標控制面板 (依據 image_fedb66 完美修正為極緻橫向單行對齊，融入雙道精緻分隔線) */}
-            <div className="flex flex-row items-center bg-slate-800/50 p-2.5 px-4 rounded-xl border border-slate-700 w-full lg:w-auto shadow-inner gap-4 lg:gap-6 shrink-0 justify-between lg:justify-start">
+            {/* 中間：生產型號與目標 */}
+            <div className="flex flex-row items-center bg-slate-800/50 p-2 px-3 rounded-xl border border-slate-700 flex-1 min-w-0 shadow-inner gap-3 shrink-0 justify-start overflow-hidden">
               
               {/* 數據資訊區 */}
               <div className="flex items-center gap-4 shrink-0">
@@ -1385,15 +1385,15 @@
             </div>
             
             {/* 右側：下班按鍵與時間 */}
-            <div className="flex items-center justify-between lg:justify-end gap-3 w-full lg:w-auto ml-0 lg:ml-auto">
+            <div className="flex items-center gap-2 shrink-0">
               <button 
                 onClick={() => setShowHandoverModal(true)}
-                className="bg-red-600 hover:bg-red-500 text-white text-xs lg:text-sm font-bold px-4 py-2 rounded-xl transition-all shadow-lg shadow-red-900/10 active:scale-95 flex items-center gap-2 border border-red-500/30 whitespace-nowrap flex-1 lg:flex-none justify-center"
+                className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-lg active:scale-95 flex items-center gap-1.5 border border-red-500/30 whitespace-nowrap"
               >
-                <i className="fa-solid fa-right-from-bracket"></i> 下班交班
+                <i className="fa-solid fa-right-from-bracket"></i> 下班
               </button>
-              <div className="flex items-center justify-center gap-2 bg-slate-800 px-4 py-2 rounded-xl border border-slate-700 shadow-inner shrink-0 w-28 lg:w-32">
-                <span className="text-sm lg:text-lg font-mono font-bold tracking-wider text-center w-full">{currentTime.toLocaleTimeString('zh-TW', { hour12: false })}</span>
+              <div className="flex items-center justify-center bg-slate-800 px-3 py-2 rounded-xl border border-slate-700 shadow-inner shrink-0">
+                <span className="text-sm font-mono font-bold tracking-wider">{currentTime.toLocaleTimeString('zh-TW', { hour12: false })}</span>
               </div>
             </div>
           </header>
