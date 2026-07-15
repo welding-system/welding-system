@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -588,8 +589,9 @@
         if (appScreen !== 'production') return;
         const check = () => {
           const m = new Date().getMinutes();
+          console.log('[稼動檢查] 當前分鐘:', m, '觸發條件:', m===1||m===31);
           if (m !== 1 && m !== 31) return;
-          // ★ 用 liveOEE 的數值（含當前正在進行的時間）
+          console.log('[稼動送出] liveOEE:', liveOEE, 'line:', lineInfo.name);
           sendToAPI({
             type: 'machine_log',
             line: lineInfo.name,
@@ -597,8 +599,8 @@
             tuneMinutes:   liveOEE.setupMin,
             pauseMinutes:  liveOEE.pauseMin,
             idleMinutes:   0,
-            inputCount:  totalInput,   // ★ 對應後端 data.inputCount
-            reworkCount: reworkCount,  // ★ 對應後端 data.reworkCount
+            inputCount:  totalInput,
+            reworkCount: reworkCount,
             pauseHistory: pauseReasonLog,
             tuneHistory:  tuneReasonLog || [],
             note: '每30分鐘自動回報',
