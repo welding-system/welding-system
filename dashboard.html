@@ -59,7 +59,7 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
   const target = batch?.target || 0;
   const tuneMin = machData?.tuneMin || 0;
 
-  const yr = input>0 ? (good/input*100).toFixed(1) : '0.0';
+  const yr = (good+defect)>0 ? (good/(good+defect)*100).toFixed(1) : '0.0'; // ★ 良率不含多肉
   const ar = target>0 ? (input/target*100).toFixed(1) : '—';  // ★ 當班投入 ÷ 目標
   const oee = machData?.oeeRate ?? 0;
   const rr  = input>0 ? (rework/input*100).toFixed(1) : '0.0';
