@@ -583,31 +583,36 @@
         return () => clearInterval(t);
       }, [appScreen, lineInfo, goodCount, totalInput, totalDefect, reworkCount, defectDetails, incomingInnerDefect, incomingOuterDefect, faiCount]);
 
-      // --- 每30分鐘自動送出稼動紀錄（讓 Dashboard 即時顯示稼動率）---
+      // --- 每30分鐘自動送出稼動紀錄 ---
+      const machineLogRef = React.useRef({});
+      React.useEffect(() => {
+        machineLogRef.current = { liveOEE, lineInfo, totalInput, reworkCount, pauseReasonLog };
+      });
       useEffect(() => {
         if (appScreen !== 'production') return;
         const check = () => {
           const m = new Date().getMinutes();
-          console.log('[稼動檢查] 當前分鐘:', m, '觸發條件:', m===1||m===31);
+          console.log('[稼動檢查] 分鐘:', m);
           if (m !== 1 && m !== 31) return;
-          console.log('[稼動送出] liveOEE:', liveOEE, 'line:', lineInfo.name);
+          const { liveOEE: oee, lineInfo: li, totalInput: ti, reworkCount: rc, pauseReasonLog: prl } = machineLogRef.current;
+          console.log('[稼動送出] line:', li?.name, 'activeMin:', oee?.runningMin);
           sendToAPI({
             type: 'machine_log',
-            line: lineInfo.name,
-            activeMinutes: liveOEE.runningMin,
-            tuneMinutes:   liveOEE.setupMin,
-            pauseMinutes:  liveOEE.pauseMin,
+            line: li.name,
+            activeMinutes: oee.runningMin,
+            tuneMinutes:   oee.setupMin,
+            pauseMinutes:  oee.pauseMin,
             idleMinutes:   0,
-            inputCount:  totalInput,
-            reworkCount: reworkCount,
-            pauseHistory: pauseReasonLog,
-            tuneHistory:  tuneReasonLog || [],
+            inputCount:    ti,
+            reworkCount:   rc,
+            pauseHistory:  prl || [],
+            tuneHistory:   [],
             note: '每30分鐘自動回報',
           });
         };
         const t = setInterval(check, 60000);
         return () => clearInterval(t);
-      }, [appScreen, lineInfo, liveOEE, totalInput, reworkCount]);
+      }, [appScreen]); // ★ 只依賴 appScreen，不依賴頻繁更新的狀態
 
       // --- 核心日誌函數 ---
       const addLog = (text, customStyle = null) => {
