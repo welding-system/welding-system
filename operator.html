@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -596,7 +597,7 @@
           if (m !== 1 && m !== 31) return;
           const { liveOEE: oee, lineInfo: li, totalInput: ti, reworkCount: rc, pauseReasonLog: prl } = machineLogRef.current;
           console.log('[稼動送出] line:', li?.name, 'activeMin:', oee?.runningMin);
-          sendToAPI({
+          sendToAPIWithResponse({
             type: 'machine_log',
             line: li.name,
             activeMinutes: oee.runningMin,
@@ -605,10 +606,10 @@
             idleMinutes:   0,
             inputCount:    ti,
             reworkCount:   rc,
-            pauseHistory:  prl || [],
+            pauseHistory:  (prl||[]).slice(-10).map(r=>({reason:r.reason})),
             tuneHistory:   [],
             note: '每30分鐘自動回報',
-          });
+          }).then(res => console.log('[稼動回傳]', res));
         };
         const t = setInterval(check, 60000);
         return () => clearInterval(t);
@@ -714,7 +715,14 @@
         //   使用 finalDurations（結算後的同步數值），不要用 statusDurations state（會是舊值）
         //   閒置模式：idle 狀態累計的秒數歸入「閒置分鐘」，其他正常分類維持原邏輯
         const tuneSec = (finalDurations.setup_lc||0) + (finalDurations.setup_fb||0) + (finalDurations.setup_sb||0);
-        sendToAPI({
+        // ★ 限制歷史記錄大小，避免 payload 過大
+        const safePauseHistory = (pauseReasonLog||[]).slice(-10).map(r => ({reason: r.reason, startTime: r.startTime}));
+        const safeTuneHistory = [
+          { type: '換線調機', seconds: finalDurations.setup_lc||0 },
+          { type: '正反調機', seconds: finalDurations.setup_fb||0 },
+          { type: '側底調機', seconds: finalDurations.setup_sb||0 },
+        ].filter(r => r.seconds > 0);
+        sendToAPIWithResponse({
           type: "machine_log",
           line: lineInfo.name,
           activeMinutes: Math.round((finalDurations.running||0) / 60 * 10) / 10,
@@ -723,12 +731,8 @@
           idleMinutes:   Math.round((finalDurations.idle||0) / 60 * 10) / 10,
           inputCount:    totalInput,
           reworkCount:   reworkCount,
-          pauseHistory:  pauseReasonLog,
-          tuneHistory:   [
-            { type: '換線調機', seconds: finalDurations.setup_lc||0 },
-            { type: '正反調機', seconds: finalDurations.setup_fb||0 },
-            { type: '側底調機', seconds: finalDurations.setup_sb||0 },
-          ],
+          pauseHistory:  safePauseHistory,
+          tuneHistory:   safeTuneHistory,
           note: isIdleMode ? "本班全程閒置等待批次分配" : "作業員端記錄（無網路暫行方案）",
         });
 
