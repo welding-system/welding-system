@@ -1327,13 +1327,11 @@
                   <h1 className="text-lg lg:text-2xl font-bold tracking-wider flex items-center gap-2 truncate">
                     {lineInfo.name} <span className="text-slate-500 text-xs lg:text-sm border-l border-slate-700 pl-2">現場報工終端</span>
                   </h1>
-                  <div className="text-slate-400 text-[10px] lg:text-xs mt-0.5 flex flex-wrap items-center gap-1.5">
+                  <div className="text-slate-400 text-[10px] lg:text-xs mt-0.5 flex flex-wrap items-center gap-1">
                     <span className={`px-1.5 py-0.5 rounded border text-[9px] lg:text-xs ${shiftInfo.bg} ${shiftInfo.border} ${shiftInfo.color} font-bold whitespace-nowrap`}>{shiftInfo.name}</span>
-                    <div className="flex items-center gap-1 overflow-hidden">
-                      <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[9px] lg:text-xs">組裝:{lineInfo.assembler}</span>
-                      <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[9px] lg:text-xs font-bold">機台:{lineInfo.machineOp}</span>
-                      <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[9px] lg:text-xs">檢驗:{lineInfo.inspector}</span>
-                    </div>
+                    <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[9px] lg:text-xs">組:{lineInfo.assembler||'—'}</span>
+                    <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[9px] lg:text-xs font-bold">機:{lineInfo.machineOp||'—'}</span>
+                    <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[9px] lg:text-xs">驗:{lineInfo.inspector||'—'}</span>
                   </div>
                 </div>
               </div>
@@ -1402,9 +1400,9 @@
 
           <div className="flex-1 flex gap-3 lg:gap-4 min-h-0">
             
-            {/* 左側數據區 - 實時顯示內、外層剩餘素材 (與公式扣減同步) */}
+            {/* 左側數據區 */}
             <div className="w-1/4 flex flex-col gap-2 lg:gap-4 min-h-0">
-              <div className="flex-1 grid grid-cols-2 gap-2 md:gap-3 min-h-0 pb-1">
+              <div className="flex-1 grid grid-cols-2 gap-2 md:gap-3 overflow-y-auto pb-1">
                 
                 {[
                   { label: "良品", val: goodCount, color: "text-emerald-400" },
@@ -1412,14 +1410,14 @@
                   { label: "製程不良", val: totalDefect, color: "text-red-400" },
                   { label: "重工", val: reworkCount, color: "text-orange-300" },
                   { label: "首件確認", val: faiCount, color: "text-cyan-400" },
-                  { label: "內層剩餘素材", val: remainingInner, color: remainingInner <= 10 ? "text-red-400 animate-pulse font-bold" : "text-cyan-300" },
-                  { label: "外層剩餘素材", val: remainingOuter, color: remainingOuter <= 10 ? "text-red-400 animate-pulse font-bold" : "text-amber-300" },
+                  { label: "內層剩餘", val: remainingInner, color: remainingInner <= 10 ? "text-red-400 animate-pulse font-bold" : "text-cyan-300" },
+                  { label: "外層剩餘", val: remainingOuter, color: remainingOuter <= 10 ? "text-red-400 animate-pulse font-bold" : "text-amber-300" },
                   { label: "良率", val: currentYield + "%", color: currentYield >= 98 ? "text-emerald-400" : "text-red-400" },
-                  { label: "即時稼動率", val: liveOEE.rate + "%", color: liveOEE.rate >= 85 ? "text-emerald-400" : "text-orange-400" }
+                  { label: "稼動率", val: liveOEE.rate + "%", color: liveOEE.rate >= 85 ? "text-emerald-400" : "text-orange-400" }
                 ].map((item, idx) => (
-                  <div key={idx} className="bg-slate-900 border border-slate-800 rounded-3xl p-2 md:p-3 flex flex-col items-center justify-center shadow-xl hover:bg-slate-800/50 transition-colors group">
-                    <span className="text-slate-500 text-[10px] md:text-xs xl:text-sm font-bold mb-1 tracking-widest">{item.label}</span>
-                    <span className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl xl:text-5xl font-mono font-bold ${item.color} leading-none whitespace-nowrap`}>
+                  <div key={idx} className="bg-slate-900 border border-slate-800 rounded-2xl p-2 flex flex-col items-center justify-center shadow-xl hover:bg-slate-800/50 transition-colors">
+                    <span className="text-slate-500 text-[9px] md:text-xs font-bold mb-1 tracking-widest text-center">{item.label}</span>
+                    <span className={`text-lg sm:text-xl md:text-2xl lg:text-3xl font-mono font-bold ${item.color} leading-none whitespace-nowrap`}>
                       {item.val}
                     </span>
                   </div>
@@ -1632,7 +1630,7 @@
           </div>
 
           {/* 生產交接記錄板 */}
-          <div className="h-32 lg:h-44 bg-slate-900 border border-slate-800 rounded-2xl p-2 lg:p-3 flex gap-2 lg:gap-3 shadow-lg shrink-0 mt-3 lg:mt-4 overflow-hidden">
+          <div className="h-36 md:h-44 lg:h-44 bg-slate-900 border border-slate-800 rounded-2xl p-2 lg:p-3 flex gap-2 lg:gap-3 shadow-lg shrink-0 mt-3 lg:mt-4 overflow-hidden">
             <div className="flex-[3] flex flex-col bg-slate-950/50 border border-slate-700/80 rounded-xl overflow-hidden">
               <div className="bg-slate-800/80 px-3 py-1.5 border-b border-slate-700/50 flex items-center justify-between shrink-0"><span className="text-slate-300 font-bold text-xs"><i className="fa-solid fa-clipboard-check text-emerald-400 mr-2"></i>生產交接記錄板</span></div>
               <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-2 no-scrollbar">
