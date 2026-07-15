@@ -110,7 +110,9 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
           : <div className="text-sm text-slate-600">尚未分配批次</div>}
       </div>
       <div className="flex-1 grid grid-cols-6 items-center border-r border-slate-800 px-1 text-center">
-        {[
+        {statusLabel === '已下班' ? (
+          <div className="col-span-6 text-slate-600 text-sm">— 已下班 —</div>
+        ) : [
           {label:'目標',   val:target||'—', color:'text-slate-400'},
           {label:'投入',   val:input,        color:'text-cyan-300'},
           {label:'良品',   val:good,         color:yrColor},
@@ -125,18 +127,22 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
         ))}
       </div>
       <div className="flex flex-col justify-center px-3 w-44 shrink-0 border-r border-slate-800">
-        <div className="text-slate-500 text-xs mb-1.5 font-bold">不良 TOP3</div>
-        {top3.length > 0 ? top3.map(([lbl,cnt],i)=>(
-          <div key={lbl} className="flex items-center gap-1.5 mb-1">
-            <span className="text-slate-700 text-xs w-3">{i+1}</span>
-            <span className="text-slate-300 text-xs flex-1 truncate">{lbl}</span>
-            <span className="text-red-400 text-sm font-bold num">{cnt}</span>
-            <span className="text-slate-600 text-[10px]">({totalNg>0?(cnt/totalNg*100).toFixed(0):0}%)</span>
-          </div>
-        )) : <div className="text-slate-700 text-xs">— 無不良 —</div>}
+        {statusLabel !== '已下班' && <>
+          <div className="text-slate-500 text-xs mb-1.5 font-bold">不良 TOP3</div>
+          {top3.length > 0 ? top3.map(([lbl,cnt],i)=>(
+            <div key={lbl} className="flex items-center gap-1.5 mb-1">
+              <span className="text-slate-700 text-xs w-3">{i+1}</span>
+              <span className="text-slate-300 text-xs flex-1 truncate">{lbl}</span>
+              <span className="text-red-400 text-sm font-bold num">{cnt}</span>
+              <span className="text-slate-600 text-[10px]">({totalNg>0?(cnt/totalNg*100).toFixed(0):0}%)</span>
+            </div>
+          )) : <div className="text-slate-700 text-xs">— 無不良 —</div>}
+        </>}
       </div>
       <div className="grid grid-cols-4 items-center px-2 w-96 shrink-0 text-center">
-        {[
+        {statusLabel === '已下班' ? (
+          <div className="col-span-4 text-slate-600 text-sm">等待下一班登入</div>
+        ) : [
           {label:'達成率', val:ar==='—'?'—':ar+'%', color:arColor},
           {label:'良率',   val:yr+'%',   color:yrColor},
           {label:'稼動率', val:oee+'%',  color:Number(oee)>=85?'text-cyan-400':'text-amber-400'},
@@ -149,7 +155,7 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
         ))}
       </div>
       {/* ★ 多肉待回填 */}
-      {fleshy.pending > 0 && (
+      {statusLabel !== '已下班' && fleshy.pending > 0 && (
         <div className="flex items-center gap-2 px-3 border-l border-slate-800 shrink-0">
           <i className="fa-solid fa-triangle-exclamation text-amber-400 text-sm"></i>
           <div className="text-center">
