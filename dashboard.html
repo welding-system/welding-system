@@ -75,8 +75,6 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
   let statusLabel, statusBg, borderColor, glowClass, rowBg;
   if (!batch) {
     statusLabel='閒置'; statusBg='text-slate-500'; borderColor='#334155'; glowClass=''; rowBg='bg-slate-900/30';
-  } else if (!isOnline && input > 0) {
-    statusLabel='已下班'; statusBg='text-slate-400'; borderColor='#475569'; glowClass=''; rowBg='bg-slate-900/50';
   } else if (!isOnline) {
     statusLabel='待機'; statusBg='text-slate-400'; borderColor='#475569'; glowClass=''; rowBg='bg-slate-900/50';
   } else if (batch?.batchStatus==='暫停中') {
@@ -110,15 +108,13 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
           : <div className="text-sm text-slate-600">尚未分配批次</div>}
       </div>
       <div className="flex-1 grid grid-cols-6 items-center border-r border-slate-800 px-1 text-center">
-        {statusLabel === '已下班' ? (
-          <div className="col-span-6 text-slate-600 text-sm">— 已下班 —</div>
-        ) : [
-          {label:'目標',   val:target||'—', color:'text-slate-400'},
-          {label:'投入',   val:input,        color:'text-cyan-300'},
-          {label:'良品',   val:good,         color:yrColor},
-          {label:'不良',   val:defect,       color:defect>0?'text-red-400':'text-slate-600'},
-          {label:'重工',   val:rework,       color:rework>0?'text-amber-400':'text-slate-600'},
-          {label:'調機(m)',val:tuneMin,      color:tuneMin>30?'text-orange-400':'text-blue-400'},
+        {[
+          {label:'目標',   val:isOnline?(target||'—'):'—', color:'text-slate-400'},
+          {label:'投入',   val:isOnline?input:'—',          color:'text-cyan-300'},
+          {label:'良品',   val:isOnline?good:'—',           color:yrColor},
+          {label:'不良',   val:isOnline?defect:'—',         color:isOnline&&defect>0?'text-red-400':'text-slate-600'},
+          {label:'重工',   val:isOnline?rework:'—',         color:isOnline&&rework>0?'text-amber-400':'text-slate-600'},
+          {label:'調機(m)',val:isOnline?tuneMin:'—',        color:isOnline&&tuneMin>30?'text-orange-400':'text-blue-400'},
         ].map(s=>(
           <div key={s.label} className="flex flex-col justify-center items-center">
             <div className="text-slate-500 text-xs font-medium mb-1">{s.label}</div>
@@ -127,26 +123,22 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
         ))}
       </div>
       <div className="flex flex-col justify-center px-3 w-44 shrink-0 border-r border-slate-800">
-        {statusLabel !== '已下班' && <>
-          <div className="text-slate-500 text-xs mb-1.5 font-bold">不良 TOP3</div>
-          {top3.length > 0 ? top3.map(([lbl,cnt],i)=>(
-            <div key={lbl} className="flex items-center gap-1.5 mb-1">
-              <span className="text-slate-700 text-xs w-3">{i+1}</span>
-              <span className="text-slate-300 text-xs flex-1 truncate">{lbl}</span>
-              <span className="text-red-400 text-sm font-bold num">{cnt}</span>
-              <span className="text-slate-600 text-[10px]">({totalNg>0?(cnt/totalNg*100).toFixed(0):0}%)</span>
-            </div>
-          )) : <div className="text-slate-700 text-xs">— 無不良 —</div>}
-        </>}
+        <div className="text-slate-500 text-xs mb-1.5 font-bold">不良 TOP3</div>
+        {isOnline && top3.length > 0 ? top3.map(([lbl,cnt],i)=>(
+          <div key={lbl} className="flex items-center gap-1.5 mb-1">
+            <span className="text-slate-700 text-xs w-3">{i+1}</span>
+            <span className="text-slate-300 text-xs flex-1 truncate">{lbl}</span>
+            <span className="text-red-400 text-sm font-bold num">{cnt}</span>
+            <span className="text-slate-600 text-[10px]">({totalNg>0?(cnt/totalNg*100).toFixed(0):0}%)</span>
+          </div>
+        )) : <div className="text-slate-700 text-xs">— 無不良 —</div>}
       </div>
       <div className="grid grid-cols-4 items-center px-2 w-96 shrink-0 text-center">
-        {statusLabel === '已下班' ? (
-          <div className="col-span-4 text-slate-600 text-sm">等待下一班登入</div>
-        ) : [
-          {label:'達成率', val:ar==='—'?'—':ar+'%', color:arColor},
-          {label:'良率',   val:yr+'%',   color:yrColor},
-          {label:'稼動率', val:oee+'%',  color:Number(oee)>=85?'text-cyan-400':'text-amber-400'},
-          {label:'重工率', val:rr+'%',   color:Number(rr)>5?'text-orange-400':'text-slate-500'},
+        {[
+          {label:'達成率', val:isOnline?(ar==='—'?'—':ar+'%'):'—', color:arColor},
+          {label:'良率',   val:isOnline?yr+'%':'—',   color:yrColor},
+          {label:'稼動率', val:isOnline?oee+'%':'—',  color:Number(oee)>=85?'text-cyan-400':'text-amber-400'},
+          {label:'重工率', val:isOnline?rr+'%':'—',   color:Number(rr)>5?'text-orange-400':'text-slate-500'},
         ].map(s=>(
           <div key={s.label} className="flex flex-col justify-center items-center">
             <div className="text-slate-500 text-xs mb-1">{s.label}</div>
@@ -155,7 +147,7 @@ function LineCard({ line, lineColor, data, machData, isOnline }) {
         ))}
       </div>
       {/* ★ 多肉待回填 */}
-      {statusLabel !== '已下班' && fleshy.pending > 0 && (
+      {isOnline && fleshy.pending > 0 && (
         <div className="flex items-center gap-2 px-3 border-l border-slate-800 shrink-0">
           <i className="fa-solid fa-triangle-exclamation text-amber-400 text-sm"></i>
           <div className="text-center">
@@ -203,14 +195,10 @@ function App() {
         const sortedNormal = [...normalRows].sort((a,b)=>new Date(b[0])-new Date(a[0]));
 
         const isOnlineNow = !!(online[line] && online[line].assembler);
-        // ★ 有人在線時用在線班別，沒人在線時從最新報工推算（顯示已下班數字）
         const onlineShift = online[line]?.shift || null;
-        const currentShift = isOnlineNow && onlineShift
-          ? onlineShift
-          : (sortedNormal.length>0 ? sortedNormal[0][2] : null);
-
-        // ★ 有人在線且班別切換時 → 只取新班次的資料（舊班次數字不顯示）
-        const shiftNormal = currentShift ? sortedNormal.filter(r=>r[2]===currentShift) : sortedNormal;
+        // ★ 沒人在線時不顯示任何數字
+        const currentShift = isOnlineNow && onlineShift ? onlineShift : null;
+        const shiftNormal = currentShift ? sortedNormal.filter(r=>r[2]===currentShift) : [];
         const latestRow = shiftNormal.length > 0 ? shiftNormal[0] : null;
         const reworkBonus = allLineRows
           .filter(r=>r[30]==='重工校正' && (!currentShift || r[2]===currentShift))
