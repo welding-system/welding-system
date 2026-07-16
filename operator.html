@@ -1337,9 +1337,9 @@
                 </h1>
                 <div className="text-slate-400 text-[10px] mt-0.5 flex flex-wrap items-center gap-1">
                   <span className={`px-1.5 py-0.5 rounded border text-[10px] ${shiftInfo.bg} ${shiftInfo.border} ${shiftInfo.color} font-bold whitespace-nowrap`}>{shiftInfo.name}</span>
-                  <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[10px]">組:{lineInfo.assembler||'—'}</span>
-                  <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[10px] font-bold">機:{lineInfo.machineOp||'—'}</span>
-                  <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[10px]">驗:{lineInfo.inspector||'—'}</span>
+                  <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[15px]">組:{lineInfo.assembler||'—'}</span>
+                  <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[15px] font-bold">機:{lineInfo.machineOp||'—'}</span>
+                  <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[15px]">驗:{lineInfo.inspector||'—'}</span>
                 </div>
               </div>
             </div>
@@ -1350,14 +1350,14 @@
               <div className="flex items-center gap-3 bg-slate-800/50 px-3 py-1.5 rounded-xl border border-slate-700">
                 <div className="flex flex-col">
                   <span className="text-[8px] text-slate-400 font-bold">型號/批號</span>
-                  <span className="text-xs font-bold text-cyan-300 font-mono leading-none">
+                  <span className="text-[20px] font-bold text-cyan-300 font-mono leading-none">
                     {lineInfo.model} <span className="text-slate-500 mx-0.5">/</span> <span className="text-amber-300">{lineInfo.batch}</span>
                   </span>
                 </div>
                 <div className="w-px h-5 bg-slate-700 shrink-0"></div>
                 <div className="flex flex-col">
                   <span className="text-[8px] text-slate-400 font-bold">目標</span>
-                  <span className="text-xs font-bold text-slate-100 font-mono leading-none">{lineInfo.target}</span>
+                  <span className="text-[20px] font-bold text-slate-100 font-mono leading-none">{lineInfo.target}</span>
                 </div>
               </div>
               {/* 操作按鈕 */}
