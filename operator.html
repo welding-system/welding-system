@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -1315,7 +1314,7 @@
         <div style={{height:'100dvh'}} className="w-screen bg-slate-950 font-sans flex flex-col p-2 overflow-hidden text-slate-100 relative">
           
           {/* Header */}
-          <header className="flex flex-row justify-between items-center bg-slate-900 border border-slate-800 p-2 rounded-xl shadow-lg shrink-0 mb-2 gap-2 overflow-hidden">
+          <header className="flex flex-row justify-between items-center bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-lg shrink-0 mb-1.5 gap-2 overflow-hidden">
             
             {/* 左側：班線與人員資訊 */}
             <div className="flex items-center gap-2 min-w-0 shrink-0">
@@ -1398,7 +1397,7 @@
             </div>
           </header>
 
-          <div className="flex-1 flex gap-2 min-h-0">
+          <div className="flex-1 flex gap-1.5 min-h-0">
             
             {/* 左側數據區 */}
             <div className="w-1/4 flex flex-col gap-2 min-h-0">
@@ -1630,7 +1629,7 @@
           </div>
 
           {/* 生產交接記錄板 */}
-          <div className="h-28 bg-slate-900 border border-slate-800 rounded-xl p-1.5 flex gap-2 shadow-lg shrink-0 mt-2 overflow-hidden">
+          <div className="h-24 bg-slate-900 border border-slate-800 rounded-xl p-1.5 flex gap-2 shadow-lg shrink-0 mt-1.5 overflow-hidden">
             <div className="flex-[3] flex flex-col bg-slate-950/50 border border-slate-700/80 rounded-xl overflow-hidden">
               <div className="bg-slate-800/80 px-3 py-1.5 border-b border-slate-700/50 flex items-center justify-between shrink-0"><span className="text-slate-300 font-bold text-xs"><i className="fa-solid fa-clipboard-check text-emerald-400 mr-2"></i>生產交接記錄板</span></div>
               <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-2 no-scrollbar">
@@ -1965,7 +1964,7 @@
                 </div>
 
                 {fleshyCount > 0 && (
-                  <div className="bg-amber-950/40 px-4 py-2 border-b border-amber-700/20 flex justify-between items-center shrink-0 text-xs md:text-sm">
+                  <div className="bg-amber-950/40 px-3 py-1 border-b border-amber-700/20 flex justify-between items-center shrink-0 text-xs">
                     <span className="font-bold text-amber-400 flex items-center gap-1.5">
                       <i className="fa-solid fa-tools"></i> 待後加工多肉數: <span className="text-xl num">{fleshyCount}</span>
                     </span>
@@ -1978,7 +1977,7 @@
 
                 {/* ★ 繼承多肉提示條 */}
                 {inheritedFleshy.length > 0 && (
-                  <div className="bg-orange-950/40 px-4 py-2 border-b border-orange-700/20 flex justify-between items-center shrink-0 text-xs">
+                  <div className="bg-orange-950/40 px-3 py-1 border-b border-orange-700/20 flex justify-between items-center shrink-0 text-xs">
                     <span className="font-bold text-orange-400 flex items-center gap-1.5">
                       <i className="fa-solid fa-clock-rotate-left"></i>
                       前幾班尚有 {inheritedFleshy.reduce((s,i)=>s+i.qty,0)} 支多肉待回填
