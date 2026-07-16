@@ -1400,9 +1400,8 @@
           <div className="flex-1 flex gap-1.5 min-h-0">
             
             {/* 左側數據區 */}
-            <div className="w-1/4 flex flex-col gap-2 min-h-0">
+            <div className="w-1/4 flex flex-col gap-1.5 min-h-0">
               <div className="flex-1 grid grid-cols-2 gap-1 min-h-0" style={{gridAutoRows:'1fr'}}>
-                
                 {[
                   { label: "良品", val: goodCount, color: "text-emerald-400" },
                   { label: "待判", val: pendingCount, color: "text-yellow-400" },
@@ -1414,23 +1413,22 @@
                   { label: "良率", val: currentYield + "%", color: currentYield >= 98 ? "text-emerald-400" : "text-red-400" },
                   { label: "稼動率", val: liveOEE.rate + "%", color: liveOEE.rate >= 85 ? "text-emerald-400" : "text-orange-400" }
                 ].map((item, idx) => (
-                  <div key={idx} className={`bg-slate-900 border border-slate-800 rounded-xl p-1.5 flex flex-col items-center justify-center shadow hover:bg-slate-800/50 transition-colors${idx===8?' col-span-2':''}`}>
-                    <span className="text-slate-500 text-[9px] font-bold mb-0.5 tracking-wider text-center">{item.label}</span>
-                    <span className={`text-xl sm:text-2xl font-mono font-bold ${item.color} leading-none whitespace-nowrap`}>
+                  <div key={idx} className={`bg-slate-900 border border-slate-800 rounded-lg p-1 flex flex-col items-center justify-center shadow hover:bg-slate-800/50 transition-colors${idx===8?' col-span-2':''}`}>
+                    <span className="text-slate-500 text-[9px] font-bold tracking-wider text-center leading-none mb-0.5">{item.label}</span>
+                    <span className={`text-2xl font-mono font-bold ${item.color} leading-none whitespace-nowrap`}>
                       {item.val}
                     </span>
                   </div>
                 ))}
-
               </div>
             </div>
 
             {/* 右側按鈕區 */}
-            <div className="w-3/4 flex flex-col gap-2 min-h-0">
-              <div className="flex-1 grid grid-cols-6 gap-2 min-h-0">
+            <div className="w-3/4 flex flex-col gap-1.5 min-h-0">
+              <div className="flex-1 grid grid-cols-6 gap-1.5 min-h-0">
                 {/* 第一欄：良品增量 */}
-                <div className="flex flex-col gap-2 h-full">
-                  <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-2 min-h-0">
+                <div className="flex flex-col gap-1.5 h-full">
+                  <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-1.5 min-h-0">
                     <button 
                       onClick={() => handleGood(1)} 
                       disabled={isMaterialExhausted}
@@ -1483,12 +1481,12 @@
                   </div>
                   {/* 減量按鈕 */}
                   <button onClick={() => { handleGood(-1); }}
-                    className="h-12 shrink-0 rounded-xl bg-slate-800 text-emerald-500 hover:bg-slate-700 text-sm font-bold flex items-center justify-center gap-1 border border-slate-700 transition-colors active:bg-slate-900 shadow-sm">
+                    className="h-9 shrink-0 rounded-xl bg-slate-800 text-emerald-500 hover:bg-slate-700 text-sm font-bold flex items-center justify-center gap-1 border border-slate-700 transition-colors active:bg-slate-900 shadow-sm">
                     <i className="fa-solid fa-minus-circle"></i> 誤判-1
                   </button>
                   <button onClick={() => { setFleshyGood(''); setFleshyBad(''); setFleshyWrong(''); setShowFleshyModal(true); }}
                     disabled={fleshyCount === 0}
-                    className={`h-12 shrink-0 rounded-xl text-sm font-bold flex items-center justify-center gap-1 border transition-colors active:bg-slate-900 shadow-sm ${
+                    className={`h-9 shrink-0 rounded-xl text-sm font-bold flex items-center justify-center gap-1 border transition-colors active:bg-slate-900 shadow-sm ${
                       fleshyCount > 0 ? 'bg-amber-950/40 text-amber-400 hover:bg-amber-900/60 border-amber-700/40' : 'bg-slate-800 text-slate-600 border-slate-700 cursor-not-allowed'
                     }`}>
                     <i className="fa-solid fa-rotate-left"></i> 多肉回填
@@ -1496,7 +1494,7 @@
                 </div>
 
                 {/* 第二欄：待判登記 */}
-                <div className="flex flex-col gap-2 h-full">
+                <div className="flex flex-col gap-1.5 h-full">
                   <button 
                     onClick={() => {
                       setSendOutQty(''); setSendOutReason(''); setSendOutDate(new Date().toISOString().slice(0,10));
@@ -1512,13 +1510,13 @@
                       </div>
                     )}
                   </button>
-                  <button onClick={() => { setShowPendingQueryModal(true); fetchPendingList(pendingQueryFilter); }} className="h-12 bg-slate-800 text-cyan-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">
+                  <button onClick={() => { setShowPendingQueryModal(true); fetchPendingList(pendingQueryFilter); }} className="h-9 bg-slate-800 text-cyan-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">
                     <i className="fa-solid fa-magnifying-glass mr-1.5"></i>待判查詢
                   </button>
                 </div>
 
                 {/* 第三欄：製程不良品 (防呆鎖定) */}
-                <div className="flex flex-col gap-2 h-full">
+                <div className="flex flex-col gap-1.5 h-full">
                   <button 
                     onClick={() => {
                       if (isMaterialExhausted) {
@@ -1536,16 +1534,16 @@
                     <i className={`fa-solid ${isMaterialExhausted ? 'fa-lock text-red-500/80' : 'fa-xmark'} text-4xl lg:text-5xl`}></i>
                     <span className="text-2xl font-bold tracking-widest">{isMaterialExhausted ? '已鎖定' : '不良品'}</span>
                   </button>
-                  <button onClick={() => setShowDefectModal(true)} className="h-12 bg-slate-800 text-red-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">管理明細</button>
+                  <button onClick={() => setShowDefectModal(true)} className="h-9 bg-slate-800 text-red-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">管理明細</button>
                   <button onClick={() => { setPickupName(''); setPickupQty(''); setPickupReason(''); setShowPickupModal(true); }}
-                    className="h-12 bg-slate-800 text-orange-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700 flex items-center justify-center gap-1.5">
+                    className="h-9 bg-slate-800 text-orange-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700 flex items-center justify-center gap-1.5">
                     <i className="fa-solid fa-hand text-xs"></i>領用不良品
                     {pickupLog.length > 0 && <span className="text-[10px] bg-orange-500 text-white rounded-full px-1.5 py-0.5">{pickupLog.length}</span>}
                   </button>
                 </div>
 
                 {/* 第四欄：重工 */}
-                <div className="flex flex-col gap-2 h-full">
+                <div className="flex flex-col gap-1.5 h-full">
                   <button 
                     onClick={() => setShowReworkModal(true)} 
                     className="flex-1 bg-orange-500 hover:bg-orange-400 text-white rounded-2xl flex flex-col items-center justify-center gap-2 border border-orange-400/50 transition-all active:scale-[0.98] shadow-md"
@@ -1553,7 +1551,7 @@
                     <i className="fa-solid fa-rotate text-4xl lg:text-5xl"></i>
                     <span className="text-2xl font-bold tracking-widest">重工件</span>
                   </button>
-                  <button onClick={() => setShowReworkModal(true)} className="h-12 bg-slate-800 text-orange-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">管理明細</button>
+                  <button onClick={() => setShowReworkModal(true)} className="h-9 bg-slate-800 text-orange-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">管理明細</button>
                   <button onClick={() => { setReworkRefillGood(''); setReworkRefillBad(''); setShowReworkRefillModal(true); }}
                     disabled={pendingRework === 0}
                     className={`h-12 rounded-xl text-sm font-bold flex items-center justify-center gap-1.5 border transition-colors relative ${
@@ -1565,7 +1563,7 @@
                 </div>
 
                 {/* 第五欄：物料餘量與自動盤點對帳 */}
-                <div className="flex flex-col gap-2 h-full">
+                <div className="flex flex-col gap-1.5 h-full">
                   <button onClick={() => setShowMaterialModal(true)} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl flex flex-col items-center justify-center gap-2 border border-blue-500/50 relative transition-all active:scale-[0.98] shadow-md">
                     <i className="fa-solid fa-boxes-stacked text-4xl lg:text-5xl"></i>
                     <span className="text-xl font-bold tracking-widest leading-none">物料餘量</span>
@@ -1584,11 +1582,11 @@
                       )}
                     </div>
                   </button>
-                  <button onClick={() => setShowMaterialModal(true)} className="h-12 bg-slate-800 text-blue-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">對帳審計表</button>
+                  <button onClick={() => setShowMaterialModal(true)} className="h-9 bg-slate-800 text-blue-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">對帳審計表</button>
                 </div>
 
                 {/* 第六欄：來料不良登記 */}
-                <div className="flex flex-col gap-2 h-full">
+                <div className="flex flex-col gap-1.5 h-full">
                   <button onClick={() => setShowIncomingDefectModal(true)} className="flex-1 bg-pink-600 hover:bg-pink-500 text-white rounded-2xl flex flex-col items-center justify-center gap-2 border border-pink-500/50 relative transition-all active:scale-[0.98] shadow-md">
                     <i className="fa-solid fa-boxes-packing text-4xl lg:text-5xl"></i>
                     <span className="text-2xl font-bold tracking-widest">來料不良</span>
@@ -1597,8 +1595,8 @@
                       <span>內:{incomingInnerDefect} / 外:{incomingOuterDefect}</span>
                     </div>
                   </button>
-                  <button onClick={() => setShowIncomingDefectModal(true)} className="h-12 bg-slate-800 text-pink-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">來料明細</button>
-                  <button onClick={() => { setTempInnerDiff(''); setTempOuterDiff(''); setShowMaterialDiffModal(true); }} className="h-12 px-3 bg-orange-950/60 hover:bg-orange-900/60 text-orange-400 text-sm font-bold rounded-xl border border-orange-800/40 transition-colors whitespace-nowrap flex items-center gap-1.5">
+                  <button onClick={() => setShowIncomingDefectModal(true)} className="h-9 bg-slate-800 text-pink-400 text-sm font-bold rounded-xl border border-slate-700 transition-colors hover:bg-slate-700">來料明細</button>
+                  <button onClick={() => { setTempInnerDiff(''); setTempOuterDiff(''); setShowMaterialDiffModal(true); }} className="h-9 px-3 bg-orange-950/60 hover:bg-orange-900/60 text-orange-400 text-sm font-bold rounded-xl border border-orange-800/40 transition-colors whitespace-nowrap flex items-center gap-1.5">
                     <i className="fa-solid fa-scale-unbalanced text-xs"></i>發料差異
                     {(innerDiff !== 0 || outerDiff !== 0) && <span className="text-[10px] bg-orange-500 text-white rounded-full px-1.5 py-0.5">!</span>}
                   </button>
