@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -107,6 +108,12 @@
 
     // ── API 設定 ──────────────────────────────────────────────
     const API_URL = "https://script.google.com/macros/s/AKfycbxITB84zMMmsoA85EysG_OnOdW8U7yoCLihJlCE-SRC4FX_9Y1JfOdET7fLp9ga0yUUQw/exec";
+
+    // ★ 如果網址有 ?clear=1，自動清除 localStorage 並跳回登入
+    if (new URLSearchParams(location.search).get('clear') === '1') {
+      try { localStorage.removeItem('welding_panel_state'); } catch(e){}
+      history.replaceState({}, '', location.pathname);
+    }
 
     async function sendToAPI(payload) {
       try {
