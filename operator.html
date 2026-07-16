@@ -1324,84 +1324,60 @@
         <div style={{height:'100dvh'}} className="w-screen bg-slate-950 font-sans flex flex-col p-2 overflow-hidden text-slate-100 relative">
           
           {/* Header */}
-          <header className="flex flex-row justify-between items-center bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-lg shrink-0 mb-1.5 gap-2 overflow-hidden">
+          <header className="flex flex-row items-center bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-lg shrink-0 mb-1.5 gap-2 overflow-hidden">
             
-            {/* 左側：班線與人員資訊 */}
-            <div className="flex items-center gap-2 min-w-0 shrink-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className={`p-1.5 rounded-lg border-2 transition-all shrink-0 ${statusDisplay[status].theme}`}>
-                  <i className={`fa-solid ${statusDisplay[status].icon} text-base`}></i>
-                </div>
-                <div className="min-w-0">
-                  <h1 className="text-base font-bold tracking-wider flex items-center gap-1.5 truncate">
-                    {lineInfo.name} <span className="text-slate-500 text-[10px] border-l border-slate-700 pl-1.5">報工終端</span>
-                  </h1>
-                  <div className="text-slate-400 text-[9px] mt-0.5 flex flex-wrap items-center gap-1">
-                    <span className={`px-1 py-0.5 rounded border text-[9px] ${shiftInfo.bg} ${shiftInfo.border} ${shiftInfo.color} font-bold whitespace-nowrap`}>{shiftInfo.name}</span>
-                    <span className="bg-slate-800/80 px-1 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[9px]">組:{lineInfo.assembler||'—'}</span>
-                    <span className="bg-slate-800/80 px-1 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[9px] font-bold">機:{lineInfo.machineOp||'—'}</span>
-                    <span className="bg-slate-800/80 px-1 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[9px]">驗:{lineInfo.inspector||'—'}</span>
-                  </div>
+            {/* 左側：班線與人員資訊（佔剩餘空間） */}
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <div className={`p-1.5 rounded-lg border-2 transition-all shrink-0 ${statusDisplay[status].theme}`}>
+                <i className={`fa-solid ${statusDisplay[status].icon} text-base`}></i>
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-lg font-bold tracking-wider flex items-center gap-1.5 truncate">
+                  {lineInfo.name} <span className="text-slate-500 text-xs border-l border-slate-700 pl-1.5">報工終端</span>
+                </h1>
+                <div className="text-slate-400 text-[10px] mt-0.5 flex flex-wrap items-center gap-1">
+                  <span className={`px-1.5 py-0.5 rounded border text-[10px] ${shiftInfo.bg} ${shiftInfo.border} ${shiftInfo.color} font-bold whitespace-nowrap`}>{shiftInfo.name}</span>
+                  <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[10px]">組:{lineInfo.assembler||'—'}</span>
+                  <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[10px] font-bold">機:{lineInfo.machineOp||'—'}</span>
+                  <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[10px]">驗:{lineInfo.inspector||'—'}</span>
                 </div>
               </div>
             </div>
 
-            {/* 中間：生產型號與目標 */}
-            <div className="flex flex-row items-center bg-slate-800/50 p-2 px-3 rounded-xl border border-slate-700 flex-1 min-w-0 shadow-inner gap-3 shrink-0 justify-start overflow-hidden">
-              
-              {/* 數據資訊區 */}
-              <div className="flex items-center gap-4 shrink-0">
-                <div className="flex flex-col justify-center">
-                  <span className="text-[8px] lg:text-[9px] text-slate-400 font-bold tracking-wider mb-0.5">生產型號 / 批號</span>
-                  <span className="text-xs lg:text-sm font-bold text-cyan-300 font-mono tracking-tight leading-none">
-                    {lineInfo.model} <span className="text-slate-500 font-sans mx-0.5">/</span> <span className="text-amber-300">{lineInfo.batch}</span>
+            {/* 右側：型號批次 + 按鈕 + 下班（全部靠右） */}
+            <div className="flex items-center gap-2 shrink-0">
+              {/* 型號批次框 */}
+              <div className="flex items-center gap-3 bg-slate-800/50 px-3 py-1.5 rounded-xl border border-slate-700">
+                <div className="flex flex-col">
+                  <span className="text-[8px] text-slate-400 font-bold">型號/批號</span>
+                  <span className="text-xs font-bold text-cyan-300 font-mono leading-none">
+                    {lineInfo.model} <span className="text-slate-500 mx-0.5">/</span> <span className="text-amber-300">{lineInfo.batch}</span>
                   </span>
                 </div>
-                
-                {/* 第一道分隔線 */}
-                <div className="w-px h-6 bg-slate-700 opacity-50 shrink-0"></div>
-                
-                <div className="flex flex-col justify-center">
-                  <span className="text-[8px] lg:text-[9px] text-slate-400 font-bold tracking-wider mb-0.5">當批剩餘目標</span>
-                  <span className="text-xs lg:text-sm font-bold text-slate-100 font-mono tracking-widest leading-none">{lineInfo.target}</span>
+                <div className="w-px h-5 bg-slate-700 shrink-0"></div>
+                <div className="flex flex-col">
+                  <span className="text-[8px] text-slate-400 font-bold">目標</span>
+                  <span className="text-xs font-bold text-slate-100 font-mono leading-none">{lineInfo.target}</span>
                 </div>
               </div>
-              
-              {/* 🌟 第二道核心分隔線 */}
-              <div className="w-px h-6 bg-slate-700 opacity-50 shrink-0"></div>
-              
-              {/* 按鈕動作區 */}
-              <div className="flex items-center gap-2 shrink-0">
-                <button 
-                  onClick={() => { setHandoverWithBatchClose(true); setShowHandoverModal(true); }}
-                  className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] lg:text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow active:scale-95 flex items-center gap-1.5 border border-blue-400/30 whitespace-nowrap"
-                >
-                  <i className="fa-solid fa-flag-checkered"></i> 提早結批
-                </button>
-                <button 
-                  onClick={() => setShowFaiModal(true)}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] lg:text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow active:scale-95 flex items-center gap-1.5 border border-emerald-400/30 whitespace-nowrap"
-                >
-                  <i className="fa-solid fa-shield-halved"></i> 首件確認
-                </button>
-                <button
-                  onClick={() => { sendToAPI({ type:"weld_report", line:lineInfo.name, assembler:lineInfo.assembler, machineOp:lineInfo.machineOp, inspector:lineInfo.inspector, model:lineInfo.model, color:lineInfo.color||"", batch:lineInfo.batch, input:reportInput, good:goodCount, defect:totalDefect, rework:reworkCount, defectDetails, incomingInnerDefect, incomingOuterDefect, faiCount, fleshyCount, note:"手動即時送出", period:getCurrentPeriod() }); showToast('✅ 即時數據已送出！'); }}
-                  className="bg-cyan-700 hover:bg-cyan-600 text-white text-[10px] lg:text-xs font-bold px-3.5 py-2 rounded-xl transition-all shadow active:scale-95 flex items-center gap-1.5 border border-cyan-400/30 whitespace-nowrap"
-                >
-                  <i className="fa-solid fa-cloud-arrow-up"></i> 即時送出
-                </button>
-              </div>
-            </div>
-            
-            {/* 右側：下班按鍵與時間 */}
-            <div className="flex items-center gap-2 shrink-0">
-              <button 
-                onClick={() => setShowHandoverModal(true)}
-                className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-lg active:scale-95 flex items-center gap-1.5 border border-red-500/30 whitespace-nowrap"
-              >
+              {/* 操作按鈕 */}
+              <button onClick={() => { setHandoverWithBatchClose(true); setShowHandoverModal(true); }}
+                className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold px-2.5 py-2 rounded-xl transition-all shadow active:scale-95 flex items-center gap-1 border border-blue-400/30 whitespace-nowrap">
+                <i className="fa-solid fa-flag-checkered"></i> 結批
+              </button>
+              <button onClick={() => setShowFaiModal(true)}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold px-2.5 py-2 rounded-xl transition-all shadow active:scale-95 flex items-center gap-1 border border-emerald-400/30 whitespace-nowrap">
+                <i className="fa-solid fa-shield-halved"></i> 首件
+              </button>
+              <button onClick={() => { sendToAPI({ type:"weld_report", line:lineInfo.name, assembler:lineInfo.assembler, machineOp:lineInfo.machineOp, inspector:lineInfo.inspector, model:lineInfo.model, color:lineInfo.color||"", batch:lineInfo.batch, input:reportInput, good:goodCount, defect:totalDefect, rework:reworkCount, defectDetails, incomingInnerDefect, incomingOuterDefect, faiCount, fleshyCount, note:"手動即時送出", period:getCurrentPeriod() }); showToast('✅ 即時數據已送出！'); }}
+                className="bg-cyan-700 hover:bg-cyan-600 text-white text-[10px] font-bold px-2.5 py-2 rounded-xl transition-all shadow active:scale-95 flex items-center gap-1 border border-cyan-400/30 whitespace-nowrap">
+                <i className="fa-solid fa-cloud-arrow-up"></i> 送出
+              </button>
+              <button onClick={() => setShowHandoverModal(true)}
+                className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-lg active:scale-95 flex items-center gap-1.5 border border-red-500/30 whitespace-nowrap">
                 <i className="fa-solid fa-right-from-bracket"></i> 下班
               </button>
-              <div className="flex items-center justify-center bg-slate-800 px-3 py-2 rounded-xl border border-slate-700 shadow-inner shrink-0">
+              <div className="flex items-center justify-center bg-slate-800 px-2.5 py-2 rounded-xl border border-slate-700 shadow-inner shrink-0">
                 <span className="text-sm font-mono font-bold tracking-wider">{currentTime.toLocaleTimeString('zh-TW', { hour12: false })}</span>
               </div>
             </div>
@@ -1426,7 +1402,7 @@
                 ].map((item, idx) => (
                   <div key={idx} className={`bg-slate-900 border border-slate-800 rounded-lg p-1 flex flex-col items-center justify-center shadow hover:bg-slate-800/50 transition-colors${idx===8?' col-span-2':''}`}>
                     <span className="text-slate-500 text-[9px] font-bold tracking-wider text-center leading-none mb-0.5">{item.label}</span>
-                    <span className={`text-2xl font-mono font-bold ${item.color} leading-none whitespace-nowrap`}>
+                    <span className={`text-3xl font-mono font-bold ${item.color} leading-none whitespace-nowrap`}>
                       {item.val}
                     </span>
                   </div>
