@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -1324,19 +1325,24 @@
         <div style={{height:'100dvh'}} className="w-screen bg-slate-950 font-sans flex flex-col p-2 overflow-hidden text-slate-100 relative">
           
           {/* Header */}
-          <header className="flex flex-row items-center bg-slate-900 border border-slate-800 p-1.5 rounded-xl shadow-lg shrink-0 mb-1.5 gap-2 overflow-hidden">
+          <header className="flex flex-row items-center bg-slate-900 border border-slate-800 p-2 rounded-xl shadow-lg shrink-0 mb-1.5 gap-2 overflow-hidden">
             
-            {/* 左側：班線與人員資訊（佔剩餘空間） */}
+            {/* 左側：班線與人員資訊（垂直三行） */}
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <div className={`p-1.5 rounded-lg border-2 transition-all shrink-0 ${statusDisplay[status].theme}`}>
                 <i className={`fa-solid ${statusDisplay[status].icon} text-base`}></i>
               </div>
-              <div className="min-w-0">
-                <h1 className="text-lg font-bold tracking-wider flex items-center gap-1.5 truncate">
-                  {lineInfo.name} <span className="text-slate-500 text-xs border-l border-slate-700 pl-1.5">報工終端</span>
+              <div className="flex flex-col min-w-0">
+                {/* 上：班別 + 時間 */}
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-[20px] font-bold ${shiftInfo.color}`}>{shiftInfo.name}</span>
+                </div>
+                {/* 中：線別（大字） */}
+                <h1 className="text-[30px] font-bold tracking-wider leading-tight">
+                  {lineInfo.name}<span className="text-slate-500 text-[16px] font-normal ml-2">｜報工終端</span>
                 </h1>
-                <div className="text-slate-400 text-[10px] mt-0.5 flex flex-wrap items-center gap-1">
-                  <span className={`px-1.5 py-0.5 rounded border text-[10px] ${shiftInfo.bg} ${shiftInfo.border} ${shiftInfo.color} font-bold whitespace-nowrap`}>{shiftInfo.name}</span>
+                {/* 下：人員 */}
+                <div className="flex flex-wrap items-center gap-1 mt-0.5">
                   <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[15px]">組:{lineInfo.assembler||'—'}</span>
                   <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[15px] font-bold">機:{lineInfo.machineOp||'—'}</span>
                   <span className="bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-700 text-slate-200 whitespace-nowrap text-[15px]">驗:{lineInfo.inspector||'—'}</span>
