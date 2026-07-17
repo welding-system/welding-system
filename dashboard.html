@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -210,7 +209,7 @@ function App() {
           rework: latestRow[13]||0,
           defectDetails: Array.from({length:13},(_,i)=>latestRow[14+i]||0),
         }] : [];
-        const todayMach = machRows.filter(r=>r[3]===line);
+        const todayMach = machRows.filter(r=>r[3]===line && (!currentShift || r[2]===currentShift));
         const activeMin = todayMach.reduce((s,r)=>s+Number(r[4]||0),0);
         const tuneMin   = todayMach.reduce((s,r)=>s+Number(r[5]||0),0);
         const stopMin   = todayMach.reduce((s,r)=>s+Number(r[6]||0),0);
