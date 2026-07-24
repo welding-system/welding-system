@@ -1,8 +1,12 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>現場作業員報工終端 - 專業儀表版</title>
   <!-- 載入 Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -342,8 +346,10 @@
           const raw = localStorage.getItem(LS_KEY);
           if (!raw) return;
           const s = JSON.parse(raw);
-          // 超過8小時的存檔不還原（避免隔天開到舊資料）
-          if (!s.savedAt || Date.now() - s.savedAt > 8 * 60 * 60 * 1000) {
+          // ★ 超過12小時 或 日期不同的存檔不還原
+          const savedDate = new Date(s.savedAt).toLocaleDateString('zh-TW');
+          const todayDate = new Date().toLocaleDateString('zh-TW');
+          if (!s.savedAt || Date.now() - s.savedAt > 12 * 60 * 60 * 1000 || savedDate !== todayDate) {
             localStorage.removeItem(LS_KEY); return;
           }
           if (s.appScreen !== 'production') return;
@@ -838,10 +844,6 @@
           showToast('請至少選擇一位接班人員！');
           return;
         }
-        if (!nextShiftStaff.workerCount) {
-          showToast('請填寫加工人數！');
-          return;
-        }
         const finalAssembler = nextShiftStaff.assembler || '無';
         const finalMachineOp = nextShiftStaff.machineOp || '無';
         const finalInspector = nextShiftStaff.inspector || '無';
@@ -1163,7 +1165,7 @@
                 {/* ★ 加工人數 */}
                 <div>
                   <label className="block text-slate-400 text-xs mb-1.5 ml-1 font-bold">
-                    加工人數 <span className="text-red-400 font-normal text-xs">（必填）</span>
+                    加工人數 <span className="text-slate-500 font-normal text-xs">（選填）</span>
                   </label>
                   <input
                     type="number" min="1" max="20"
