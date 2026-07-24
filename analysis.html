@@ -1,1 +1,588 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>熔接線 — 生產分析看板</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+  body { font-family: -apple-system, "Noto Sans TC", sans-serif; background: #020817; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  .chart-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 16px; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen">
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+const API_URL = "https://script.google.com/macros/s/AKfycbxITB84zMMmsoA85EysG_OnOdW8U7yoCLihJlCE-SRC4FX_9Y1JfOdET7fLp9ga0yUUQw/exec";
+
+const LINES = ['1號線','2號線','3號線','4號線','5號線','6號線','7號線','8號線'];
+const LINE_COLORS = ['#34d399','#60a5fa','#f59e0b','#f472b6','#a78bfa','#22d3ee','#fb923c','#86efac'];
+const DEFECT_LABELS = ["熔接不良(正)","熔接不良(反)","熔接不良(側)","熔接不良(底)","損傷","組裝不良","機台操作不當","調機不良","髒污","按鈕對位","相機鍵異常","異色點","鏟傷多肉","其他"];
+
+// 取「上週一~上週日」
+function getLastWeekRange() {
+  const now = new Date();
+  const dow = now.getDay();
+  const daysSinceMon = dow === 0 ? 6 : dow - 1;
+  const thisMonday = new Date(now); thisMonday.setDate(now.getDate() - daysSinceMon); thisMonday.setHours(0,0,0,0);
+  const lastMonday = new Date(thisMonday); lastMonday.setDate(thisMonday.getDate() - 7);
+  const lastSunday = new Date(thisMonday); lastSunday.setDate(thisMonday.getDate() - 1);
+  return { from: lastMonday.toISOString().slice(0,10), to: lastSunday.toISOString().slice(0,10) };
+}
+
+// 通用 Chart.js 元件
+function ChartCanvas({ id, config }) {
+  const ref = useRef(null);
+  const chartRef = useRef(null);
+  useEffect(() => {
+    if (!ref.current || typeof Chart === 'undefined') return;
+    if (chartRef.current) chartRef.current.destroy();
+    chartRef.current = new Chart(ref.current.getContext('2d'), config);
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [config]);
+  return <canvas ref={ref} id={id}></canvas>;
+}
+
+// ── 資料處理 ──────────────────────────────────────────────
+function processData(weldRows, machineRows, fromDate, toDate) {
+  const from = new Date(fromDate); from.setHours(0,0,0,0);
+  const to   = new Date(toDate);   to.setHours(23,59,59,999);
+
+  const inRange = (r) => { const d = new Date(r[0]); return d >= from && d <= to; };
+  const weld    = weldRows.filter(r => r[0] && inRange(r) && r[30] !== '待判校正');
+  const machine = machineRows.filter(r => r[0] && inRange(r));
+
+  // 總計卡片
+  const total = weld.reduce((a,r) => {
+    a.input  += r[10]||0; a.good   += r[11]||0; a.defect += r[12]||0; a.rework += r[13]||0; return a;
+  }, { input:0, good:0, defect:0, rework:0 });
+  total.yield = total.input > 0 ? (total.good/total.input*100).toFixed(1) : '0.0';
+
+  const machTotal = machine.reduce((a,r) => {
+    a.active += r[4]||0; a.total += (r[4]||0)+(r[5]||0)+(r[6]||0)+(r[12]||0); return a;
+  }, { active:0, total:0 });
+  total.oee = machTotal.total > 0 ? (machTotal.active/machTotal.total*100).toFixed(1) : '0.0';
+
+  // 按線別彙整
+  const byLine = {};
+  LINES.forEach(l => { byLine[l] = { input:0, good:0, defect:0, rework:0, active:0, tune:0, pause:0, idle:0 }; });
+  weld.forEach(r => {
+    const l = r[3]; if (!byLine[l]) return;
+    byLine[l].input += r[10]||0; byLine[l].good += r[11]||0;
+    byLine[l].defect += r[12]||0; byLine[l].rework += r[13]||0;
+  });
+  machine.forEach(r => {
+    const l = r[3]; if (!byLine[l]) return;
+    byLine[l].active += r[4]||0; byLine[l].tune += r[5]||0;
+    byLine[l].pause  += r[6]||0; byLine[l].idle  += r[12]||0;
+  });
+
+  // 不良分類
+  const defectBreakdown = {};
+  DEFECT_LABELS.forEach((lbl, idx) => {
+    const total = weld.reduce((sum, r) => sum + (r[14+idx]||0), 0);
+    if (total > 0) defectBreakdown[lbl] = total;
+  });
+
+  // 良率趨勢：按日
+  const byDay = {};
+  weld.forEach(r => {
+    const day = String(r[1]).slice(0,10);
+    const line = r[3];
+    if (!byDay[day]) byDay[day] = {};
+    if (!byDay[day][line]) byDay[day][line] = { input:0, good:0 };
+    byDay[day][line].input += r[10]||0;
+    byDay[day][line].good  += r[11]||0;
+  });
+  const days = Object.keys(byDay).sort();
+
+  // 良率趨勢：按批次（從批次管理 API 查詢用，這裡先按日模擬）
+  const byBatch = {};
+  weld.forEach(r => {
+    const key = `${r[7]}${r[8]}-${r[9]}-${r[3]}`; // 型號+顏色+批號+線別
+    if (!byBatch[key]) byBatch[key] = { label: `${r[7]}${r[8]} ${r[9]} (${r[3]})`, line: r[3], input:0, good:0, date: String(r[1]).slice(0,10) };
+    byBatch[key].input += r[10]||0;
+    byBatch[key].good  += r[11]||0;
+  });
+  const batches = Object.values(byBatch).sort((a,b) => a.date.localeCompare(b.date)).slice(0, 30);
+
+  return { total, byLine, defectBreakdown, days, byDay, batches };
+}
+
+// ── 主元件 ──────────────────────────────────────────────
+function App() {
+  const { from: defaultFrom, to: defaultTo } = getLastWeekRange();
+  const [fromDate, setFromDate] = useState(defaultFrom);
+  const [toDate,   setToDate]   = useState(defaultTo);
+  const [loading, setLoading]   = useState(false);
+  const [weldRows,    setWeldRows]    = useState([]);
+  const [machineRows, setMachineRows] = useState([]);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportFrom, setExportFrom] = useState(defaultFrom);
+  const [exportTo, setExportTo]     = useState(defaultTo);
+  const [exportStatus, setExportStatus] = useState(''); // '' / 'loading' / 'done' / 'error'
+  const [exportMsg, setExportMsg]   = useState('');
+  const [trendMode, setTrendMode] = useState('day'); // ★ 恢復：'day' | 'batch'
+
+  const handleExportToPIM = async () => {
+    setExportStatus('loading');
+    setExportMsg('');
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'export_to_pim', from: exportFrom, to: exportTo }),
+      });
+      const data = await res.json();
+      if (data.status === 'ok') {
+        setExportStatus('done');
+        setExportMsg(data.message);
+      } else {
+        setExportStatus('error');
+        setExportMsg(data.message || '寫入失敗');
+      }
+    } catch(e) {
+      setExportStatus('error');
+      setExportMsg('網路連線失敗');
+    }
+  };
+  const [activeLines, setActiveLines] = useState(new Set(LINES));
+
+  const fetchData = useCallback(async (from, to) => {
+    setLoading(true);
+    try {
+      const [w, m] = await Promise.all([
+        fetch(`${API_URL}?action=weld_log_range&from=${from}&to=${to}`).then(r=>r.json()),
+        fetch(`${API_URL}?action=machine_log_range&from=${from}&to=${to}`).then(r=>r.json()),
+      ]);
+      setWeldRows(w.status === 'ok' ? w.rows : []);
+      setMachineRows(m.status === 'ok' ? m.rows : []);
+    } catch(e) { console.error(e); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchData(fromDate, toDate); }, []);
+
+  const data = useMemo(() => {
+    if (!weldRows.length && !machineRows.length) return null;
+    return processData(weldRows, machineRows, fromDate, toDate);
+  }, [weldRows, machineRows, fromDate, toDate]);
+
+  const handleQuery = () => { fetchData(fromDate, toDate); };
+
+  // 快速區間按鈕
+  const setQuickRange = (label) => {
+    const now = new Date();
+    const dow = now.getDay();
+    const daysSinceMon = dow === 0 ? 6 : dow - 1;
+    if (label === '本週') {
+      const mon = new Date(now); mon.setDate(now.getDate() - daysSinceMon); mon.setHours(0,0,0,0);
+      setFromDate(mon.toISOString().slice(0,10)); setToDate(now.toISOString().slice(0,10));
+    } else if (label === '上週') {
+      const { from, to } = getLastWeekRange(); setFromDate(from); setToDate(to);
+    } else if (label === '本月') {
+      const mon = new Date(now.getFullYear(), now.getMonth(), 1);
+      setFromDate(mon.toISOString().slice(0,10)); setToDate(now.toISOString().slice(0,10));
+    } else if (label === '上月') {
+      const first = new Date(now.getFullYear(), now.getMonth()-1, 1);
+      const last  = new Date(now.getFullYear(), now.getMonth(), 0);
+      setFromDate(first.toISOString().slice(0,10)); setToDate(last.toISOString().slice(0,10));
+    }
+  };
+
+  // ── 圖表設定 ──────────────────────────────────────────
+
+  // 圖表1：良率趨勢
+  const trendConfig = useMemo(() => {
+    if (!data) return null;
+    const chartOptions = {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#94a3b8', boxWidth: 12 } }, tooltip: { mode: 'index', intersect: false } },
+      scales: {
+        x: { ticks: { color: '#64748b', maxTicksLimit: 12 }, grid: { color: '#1e293b' } },
+        y: { ticks: { color: '#64748b', callback: v => v+'%' }, grid: { color: '#1e293b' }, min: 0, max: 100 },
+      },
+    };
+
+    if (trendMode === 'day') {
+      const labels = data.days;
+      const datasets = [...activeLines].map((line, i) => ({
+        label: line,
+        data: labels.map(d => {
+          const ld = data.byDay[d]?.[line];
+          return ld && ld.input > 0 ? +(ld.good/ld.input*100).toFixed(1) : null;
+        }),
+        borderColor: LINE_COLORS[LINES.indexOf(line)],
+        backgroundColor: LINE_COLORS[LINES.indexOf(line)] + '20',
+        pointRadius: 4, pointHoverRadius: 6,
+        tension: 0.3, spanGaps: true,
+      }));
+      return { type: 'line', data: { labels, datasets }, options: chartOptions };
+    } else {
+      // 按批次：每個線別的批次各一點
+      const lineDatasets = LINES.filter(l => activeLines.has(l)).map((line, i) => {
+        const pts = data.batches.filter(b => b.line === line);
+        return {
+          label: line,
+          data: pts.map(b => ({ x: b.label, y: b.input>0 ? +(b.good/b.input*100).toFixed(1) : null })),
+          borderColor: LINE_COLORS[LINES.indexOf(line)],
+          backgroundColor: LINE_COLORS[LINES.indexOf(line)] + '20',
+          pointRadius: 5, pointHoverRadius: 7,
+          tension: 0.2, showLine: true, spanGaps: true,
+        };
+      });
+      const allLabels = [...new Set(data.batches.map(b => b.label))];
+      return { type: 'line', data: { labels: allLabels, datasets: lineDatasets }, options: { ...chartOptions, scales: { ...chartOptions.scales, x: { ...chartOptions.scales.x, ticks: { color: '#64748b', maxRotation: 45 } } } } };
+    }
+  }, [data, trendMode, activeLines]);
+
+  // 圖表2：各線別產能（投入/良品/不良 堆疊）
+  const capacityConfig = useMemo(() => {
+    if (!data) return null;
+    const lines = LINES.filter(l => (data.byLine[l]?.input||0) > 0);
+    return {
+      type: 'bar',
+      data: {
+        labels: lines,
+        datasets: [
+          { label: '良品', data: lines.map(l => data.byLine[l].good),   backgroundColor: '#34d399' },
+          { label: '不良', data: lines.map(l => data.byLine[l].defect), backgroundColor: '#f87171' },
+          { label: '重工', data: lines.map(l => data.byLine[l].rework), backgroundColor: '#fbbf24' },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#94a3b8', boxWidth: 12 } } },
+        scales: {
+          x: { stacked: true, ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+          y: { stacked: true, ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+        },
+      },
+    };
+  }, [data]);
+
+  // 圖表3：不良種類圓餅圖
+  const defectConfig = useMemo(() => {
+    if (!data) return null;
+    const entries = Object.entries(data.defectBreakdown).sort((a,b) => b[1]-a[1]).slice(0,10);
+    if (!entries.length) return null;
+    const palette = ['#f87171','#fb923c','#fbbf24','#a3e635','#34d399','#22d3ee','#60a5fa','#a78bfa','#f472b6','#94a3b8'];
+    return {
+      type: 'doughnut',
+      data: {
+        labels: entries.map(([k]) => k),
+        datasets: [{ data: entries.map(([,v]) => v), backgroundColor: palette, borderWidth: 2, borderColor: '#0f172a' }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        cutout: '60%',
+        plugins: {
+          legend: { position: 'right', labels: { color: '#94a3b8', boxWidth: 12, padding: 10, font: { size: 11 } } },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed} 個 (${(ctx.parsed/Object.values(data.defectBreakdown).reduce((a,b)=>a+b,0)*100).toFixed(1)}%)` } },
+        },
+      },
+    };
+  }, [data]);
+
+  // 圖表4：稼動時間分布（堆疊長條）
+  const oeeConfig = useMemo(() => {
+    if (!data) return null;
+    const lines = LINES.filter(l => {
+      const m = data.byLine[l];
+      return m && (m.active+m.tune+m.pause+m.idle) > 0;
+    });
+    return {
+      type: 'bar',
+      data: {
+        labels: lines,
+        datasets: [
+          { label: '稼動（生產）',  data: lines.map(l => Math.round(data.byLine[l].active)), backgroundColor: '#34d399' },
+          { label: '調機',         data: lines.map(l => Math.round(data.byLine[l].tune)),   backgroundColor: '#60a5fa' },
+          { label: '異常暫停',     data: lines.map(l => Math.round(data.byLine[l].pause)),  backgroundColor: '#f87171' },
+          { label: '閒置（無批次）',data: lines.map(l => Math.round(data.byLine[l].idle)),  backgroundColor: '#475569' },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#94a3b8', boxWidth: 12 } } },
+        scales: {
+          x: { stacked: true, ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+          y: { stacked: true, ticks: { color: '#64748b', callback: v => v+'分' }, grid: { color: '#1e293b' } },
+        },
+      },
+    };
+  }, [data]);
+
+  const toggleLine = (line) => {
+    setActiveLines(prev => {
+      const next = new Set(prev);
+      if (next.has(line)) { if (next.size > 1) next.delete(line); }
+      else next.add(line);
+      return next;
+    });
+  };
+
+  return (
+    <div className="min-h-screen p-5 lg:p-8">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-emerald-400 flex items-center gap-2.5">
+            <i className="fa-solid fa-chart-mixed"></i> 熔接線生產分析看板
+          </h1>
+          <p className="text-slate-500 text-xs mt-1">資料來源：熔接報工紀錄 + 機台稼動紀錄（即時計算，含待判校正）</p>
+        </div>
+        <button onClick={() => { setShowExportModal(true); setExportStatus(''); setExportMsg(''); }}
+          className="bg-purple-700 hover:bg-purple-600 text-white font-bold px-4 py-2.5 rounded-xl text-sm flex items-center gap-2 transition-all">
+          <i className="fa-solid fa-file-export"></i> 匯出到生管表格
+        </button>
+      </div>
+
+      {/* 日期區間選擇器 */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 mb-6 flex flex-wrap gap-3 items-center">
+        <div className="flex gap-2">
+          {['本週','上週','本月','上月'].map(label => (
+            <button key={label} onClick={() => setQuickRange(label)}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-all"
+            >{label}</button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 ml-auto">
+          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-emerald-500"
+          />
+          <span className="text-slate-500 text-sm">～</span>
+          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-emerald-500"
+          />
+          <button onClick={handleQuery}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 py-2 rounded-xl text-sm transition-all active:scale-95"
+          >
+            {loading ? <i className="fa-solid fa-spinner fa-spin mr-1.5"></i> : <i className="fa-solid fa-magnifying-glass mr-1.5"></i>}
+            查詢
+          </button>
+        </div>
+      </div>
+
+      {/* ★ 匯出到生管表格 Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-900 border border-purple-600 rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-5">
+            <h3 className="text-xl font-bold text-purple-400 flex items-center gap-2">
+              <i className="fa-solid fa-file-export"></i> 匯出到生管熔接分頁
+            </h3>
+            <p className="text-slate-400 text-sm">選擇要匯出的日期區間，系統會將這段期間的熔接報工紀錄附加寫入生管那張表。</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-slate-500 text-xs font-bold mb-1.5">開始日期</label>
+                <input type="date" value={exportFrom} onChange={e => setExportFrom(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:border-purple-500"/>
+              </div>
+              <div>
+                <label className="block text-slate-500 text-xs font-bold mb-1.5">結束日期</label>
+                <input type="date" value={exportTo} onChange={e => setExportTo(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:border-purple-500"/>
+              </div>
+            </div>
+
+            {exportStatus === 'done' && (
+              <div className="bg-emerald-950/40 border border-emerald-700/50 rounded-xl p-3 text-emerald-400 text-sm font-bold">
+                <i className="fa-solid fa-check mr-2"></i>{exportMsg}
+              </div>
+            )}
+            {exportStatus === 'error' && (
+              <div className="bg-red-950/40 border border-red-700/50 rounded-xl p-3 text-red-400 text-sm font-bold">
+                <i className="fa-solid fa-xmark mr-2"></i>{exportMsg}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button onClick={() => setShowExportModal(false)}
+                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold py-3 rounded-xl text-sm transition-all">
+                關閉
+              </button>
+              <button onClick={handleExportToPIM}
+                disabled={exportStatus === 'loading'}
+                className="flex-1 bg-purple-600 hover:bg-purple-500 disabled:bg-slate-700 text-white font-bold py-3 rounded-xl text-sm transition-all active:scale-95">
+                {exportStatus === 'loading'
+                  ? <><i className="fa-solid fa-spinner fa-spin mr-2"></i>寫入中...</>
+                  : <><i className="fa-solid fa-file-export mr-2"></i>確認匯出</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {loading && (
+        <div className="text-center py-20 text-slate-500">
+          <i className="fa-solid fa-spinner fa-spin text-3xl mb-3 block text-emerald-500"></i>
+          載入資料中...
+        </div>
+      )}
+
+      {!loading && !data && (
+        <div className="text-center py-20 text-slate-600">
+          <i className="fa-solid fa-chart-mixed text-5xl mb-3 block"></i>
+          選擇日期區間後按「查詢」載入資料
+        </div>
+      )}
+
+      {!loading && data && (
+        <>
+          {/* 總計卡片 */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            {[
+              { label: '區間總投入', val: data.total.input.toLocaleString(), unit: 'pcs', icon: 'fa-cubes', color: 'text-blue-400', bg: 'bg-blue-500/10' },
+              { label: '區間總良品', val: data.total.good.toLocaleString(), unit: 'pcs', icon: 'fa-circle-check', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+              { label: '整體良率',   val: data.total.yield, unit: '%', icon: 'fa-percent', color: data.total.yield >= 95 ? 'text-emerald-400' : data.total.yield >= 85 ? 'text-amber-400' : 'text-red-400', bg: 'bg-purple-500/10' },
+              { label: '平均稼動率', val: data.total.oee, unit: '%', icon: 'fa-gauge-high', color: data.total.oee >= 85 ? 'text-emerald-400' : 'text-amber-400', bg: 'bg-cyan-500/10' },
+            ].map(item => (
+              <div key={item.label} className={`${item.bg} border border-slate-800 rounded-2xl p-5`}>
+                <div className="flex items-center gap-3">
+                  <i className={`fa-solid ${item.icon} text-xl ${item.color}`}></i>
+                  <div>
+                    <div className="text-slate-500 text-xs font-bold">{item.label}</div>
+                    <div className={`text-2xl font-mono font-bold ${item.color}`}>
+                      {item.val}<span className="text-sm text-slate-500 ml-1">{item.unit}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 圖表1：良率趨勢 */}
+          <div className="chart-card p-5 mb-5">
+            <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <i className="fa-solid fa-chart-line text-emerald-400"></i> 良率趨勢
+              </h2>
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* 切換按日/批次 */}
+                <div className="flex bg-slate-800 rounded-xl p-1">
+                  {[['day','按日'],['batch','按批次']].map(([mode, label]) => (
+                    <button key={mode} onClick={() => setTrendMode(mode)}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${trendMode===mode ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                    >{label}</button>
+                  ))}
+                </div>
+                {/* 線別篩選 */}
+                <div className="flex flex-wrap gap-1.5">
+                  {LINES.map((line, i) => (
+                    <button key={line} onClick={() => toggleLine(line)}
+                      style={{ borderColor: LINE_COLORS[i], color: activeLines.has(line) ? LINE_COLORS[i] : '#475569', backgroundColor: activeLines.has(line) ? LINE_COLORS[i]+'20' : 'transparent' }}
+                      className="px-2 py-0.5 rounded-md text-xs font-bold border transition-all"
+                    >{line}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div style={{ height: 280 }}>
+              {trendConfig && <ChartCanvas id="trendChart" config={trendConfig} />}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+            {/* 圖表2：各線別產能 */}
+            <div className="chart-card p-5">
+              <h2 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+                <i className="fa-solid fa-bars text-blue-400"></i> 各線別產能（投入/良品/不良）
+              </h2>
+              <div style={{ height: 260 }}>
+                {capacityConfig && <ChartCanvas id="capacityChart" config={capacityConfig} />}
+              </div>
+            </div>
+
+            {/* 圖表3：不良種類圓餅 */}
+            <div className="chart-card p-5">
+              <h2 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+                <i className="fa-solid fa-chart-pie text-red-400"></i> 不良種類分布
+              </h2>
+              {defectConfig ? (
+                <div style={{ height: 260 }}>
+                  <ChartCanvas id="defectChart" config={defectConfig} />
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-64 text-slate-600 text-sm">此區間無不良記錄</div>
+              )}
+            </div>
+          </div>
+
+          {/* 圖表4：稼動時間分布 */}
+          <div className="chart-card p-5 mb-5">
+            <h2 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+              <i className="fa-solid fa-clock text-cyan-400"></i> 各線別稼動時間分布（分鐘）
+              <span className="text-xs text-slate-500 font-normal ml-2">需機台稼動紀錄有資料才會顯示</span>
+            </h2>
+            <div style={{ height: 260 }}>
+              {oeeConfig ? <ChartCanvas id="oeeChart" config={oeeConfig} /> : (
+                <div className="flex items-center justify-center h-64 text-slate-600 text-sm">此區間無稼動資料</div>
+              )}
+            </div>
+          </div>
+
+          {/* 各線別良率明細表格 */}
+          <div className="chart-card p-5">
+            <h2 className="text-base font-bold text-white mb-4 flex items-center gap-2">
+              <i className="fa-solid fa-table text-slate-400"></i> 各線別彙整明細
+            </h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-slate-500 text-xs">
+                    <th className="p-2 text-left">線別</th>
+                    <th className="p-2 text-right">投入</th>
+                    <th className="p-2 text-right">良品</th>
+                    <th className="p-2 text-right">不良</th>
+                    <th className="p-2 text-right">重工</th>
+                    <th className="p-2 text-right">良率</th>
+                    <th className="p-2 text-right">稼動率</th>
+                    <th className="p-2 text-right">稼動分鐘</th>
+                    <th className="p-2 text-right">閒置分鐘</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {LINES.filter(l => (data.byLine[l]?.input||0) > 0).map(line => {
+                    const d = data.byLine[line];
+                    const yr = d.input > 0 ? (d.good/d.input*100).toFixed(1) : '—';
+                    const totalMin = d.active + d.tune + d.pause + d.idle;
+                    const oeeRate = totalMin > 0 ? (d.active/totalMin*100).toFixed(1) : '—';
+                    return (
+                      <tr key={line} className="border-t border-slate-800 hover:bg-slate-800/30">
+                        <td className="p-2 font-bold text-white">{line}</td>
+                        <td className="p-2 text-right text-slate-300">{d.input}</td>
+                        <td className="p-2 text-right text-emerald-400">{d.good}</td>
+                        <td className="p-2 text-right text-red-400">{d.defect}</td>
+                        <td className="p-2 text-right text-amber-400">{d.rework}</td>
+                        <td className="p-2 text-right font-bold" style={{ color: yr >= 95 ? '#34d399' : yr >= 85 ? '#fbbf24' : '#f87171' }}>{yr}%</td>
+                        <td className="p-2 text-right text-cyan-400">{oeeRate !== '—' ? oeeRate + '%' : '—'}</td>
+                        <td className="p-2 text-right text-slate-400">{Math.round(d.active)}</td>
+                        <td className="p-2 text-right text-slate-600">{Math.round(d.idle)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
 
